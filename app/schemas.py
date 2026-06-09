@@ -13,9 +13,7 @@ class UserCreate(UserBase):
 class UserOut(UserBase):
     id: int
     created_at: datetime
-
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 class Token(BaseModel):
     access_token: str
@@ -44,9 +42,7 @@ class ClientUpdate(BaseModel):
 class ClientOut(ClientBase):
     id: int
     created_at: datetime
-
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class InvoiceLineBase(BaseModel):
@@ -62,9 +58,7 @@ class InvoiceLineCreate(InvoiceLineBase):
 class InvoiceLineOut(InvoiceLineBase):
     id: int
     invoice_id: int
-
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 class InvoiceBase(BaseModel):
     invoice_number: Optional[str] = None
@@ -91,7 +85,4 @@ class InvoiceUpdate(BaseModel):
 class InvoiceOut(InvoiceBase):
     id: int
     lines: list[InvoiceLineOut] = []
-
-    class Config:
-        from_attributes = True
-
+    model_config = {"from_attributes": True}
