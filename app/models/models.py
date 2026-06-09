@@ -19,6 +19,7 @@ class Client(Base):
     email = Column(String)
     address = Column(String)
     vat_number = Column(String)  # Numéro de TVA intracommunautaire
+    siren = Column(String)  # Numéro SIREN
     created_at = Column(DateTime, default=lambda: datetime.datetime.now(timezone.utc))
     invoices = relationship("Invoice", back_populates="client")
 
