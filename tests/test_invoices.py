@@ -28,9 +28,9 @@ def test_create_invoice(client, db):
     assert data["client_id"] == client_id
     assert len(data["lines"]) == 2
     # Totals should be recalculated: 100 + 20 = 120 HT, TVA = 120 * 0.2 = 24, TTC = 144
-    assert data["total_ht"] == 120.0
-    assert data["total_tva"] == 24.0
-    assert data["total_ttc"] == 144.0
+    assert float(data["total_ht"]) == 120.0
+    assert float(data["total_tva"]) == 24.0
+    assert float(data["total_ttc"]) == 144.0
 
 def test_create_invoice_client_not_found(client):
     invoice_data = {
