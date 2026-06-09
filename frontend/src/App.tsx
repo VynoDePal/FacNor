@@ -2,13 +2,16 @@ import './App.css'
 import React, { useState, useEffect } from 'react';
 import ClientList from './components/ClientList';
 import ClientForm from './components/ClientForm';
+import InvoiceForm from './components/InvoiceForm';
 import { clientService } from './api/clientApi';
 import { Client, ClientCreate } from './types/client';
+import { Invoice } from './types/invoice';
 
 function App() {
   const [clients, setClients] = useState<Client[]>([]);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [isAddingClient, setIsAddingClient] = useState(false);
+  const [isAddingInvoice, setIsAddingInvoice] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -51,7 +54,11 @@ function App() {
         setError('Erreur lors de la suppression du client');
         console.error(err);
       }
-    }
+  };
+
+  const handleSaveInvoice = (invoice: Invoice) => {
+    alert(`Facture ${invoice.invoice_number || ''} enregistrée avec succès !`);
+    setIsAddingInvoice(false);
   };
 
   return (
@@ -65,8 +72,8 @@ function App() {
         </div>
       )}
 
-      <div style={{ marginTop: '2rem' }}>
-        {!isAddingClient && !editingClient && (
+      <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'center', gap: '1rem' }}>
+        {!isAddingClient && !editingClient && !isAddingInvoice && (
           <button 
             onClick={() => setIsAddingClient(true)} 
             style={{ padding: '0.5rem 1rem', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '1rem' }}
@@ -74,6 +81,15 @@ function App() {
             + Ajouter un Client
           </button>
         )}
+        {!isAddingClient && !editingClient && !isAddingInvoice && (
+          <button 
+            onClick={() => setIsAddingInvoice(true)} 
+            style={{ padding: '0.5rem 1rem', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '1rem' }}
+          >
+            + Créer une Facture
+          </button>
+        )}
+      </div>
 
         {(isAddingClient || editingClient) && (
           <ClientForm 
@@ -83,6 +99,14 @@ function App() {
               setIsAddingClient(false);
               setEditingClient(null);
             }} 
+          />
+        )}
+
+        {isAddingInvoice && (
+          <InvoiceForm 
+            clients={clients} 
+            onSave={handleSaveInvoice} 
+            onCancel={() => setIsAddingInvoice(false)} 
           />
         )}
 
