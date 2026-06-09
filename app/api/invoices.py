@@ -1,10 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
+
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.core.database import get_db
 from app.models import models
 from app.schemas import InvoiceCreate, InvoiceOut, InvoiceUpdate
 from app.services.numbering import get_next_invoice_number
+from app.services.pdf_service import generate_invoice_pdf
+
 from app.services.tax_calculator import TaxCalculator
 
 router = APIRouter(
@@ -107,3 +111,20 @@ def delete_invoice(invoice_id: int, db: Session = Depends(get_db)):
     db.delete(db_invoice)
     db.commit()
     return None
+
+@router.get("/{invoice_id}/pdf", response_class=StreamingResponse)
+def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
+    db_invoice = db.query(models.Invoice).filter(models.Invoice.id == invoice_id).first()
+    if not db_invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    # Use joinedload or similar if needed, but here we just need the client and lines
+    # Since they are relationships, they'll be lazy loaded.
+    
+    pdf_buffer = generate_invoice_pdf(db_invoice)
+    
+    return StreamingResponse(
+        pdf_buffer, 
+        media_type="application/pdf", 
+        headers={"Content-Disposition": f"attachment; filename=invoice_{db_invoice.invoice_number}.pdf"}
+    )
