@@ -63,3 +63,58 @@ CREATE TABLE InvoiceItems (
 CREATE INDEX idx_clients_user_id ON Clients(user_id);
 CREATE INDEX idx_invoices_client_id ON Invoices(client_id);
 CREATE INDEX idx_invoice_items_invoice_id ON InvoiceItems(invoice_id);
+
+-- Sequential Numbering Engine
+-- Table to track per-user sequences
+CREATE TABLE InvoiceSequences (
+    user_id UUID PRIMARY KEY REFERENCES Users(id) ON DELETE CASCADE,
+    current_value INTEGER NOT NULL DEFAULT 0,
+    prefix VARCHAR(10) DEFAULT 'INV-',
+    CONSTRAINT positive_sequence CHECK (current_value >= 0)
+);
+
+-- Function to generate the next invoice number
+CREATE OR REPLACE FUNCTION fn_generate_invoice_number(p_client_id UUID) 
+RETURNS VARCHAR(50) AS \$$
+DECLARE
+    v_user_id UUID;
+    v_next_val INTEGER;
+    v_prefix VARCHAR(10);
+BEGIN
+    -- Get the user_id for the given client
+    SELECT user_id INTO v_user_id FROM Clients WHERE id = p_client_id;
+    
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'Client not found for the given ID';
+    END IF;
+
+    -- Atomically increment and get the next value for the user
+    -- Use row-level locking to prevent gaps and race conditions
+    INSERT INTO InvoiceSequences (user_id, current_value)
+    VALUES (v_user_id, 1)
+    ON CONFLICT (user_id) 
+    DO UPDATE SET current_value = InvoiceSequences.current_value + 1
+    RETURNING current_value, prefix INTO v_next_val, v_prefix;
+
+    -- Return the formatted invoice number (e.g., INV-0001)
+    RETURN v_prefix || LPAD(v_next_val::TEXT, 6, '0');
+END;
+\$$ LANGUAGE plpgsql;
+
+-- Trigger to automatically populate invoice_number before insertion
+CREATE OR REPLACE FUNCTION fn_invoice_number_trigger() 
+RETURNS TRIGGER AS \$$
+BEGIN
+    -- Only generate if invoice_number is not provided
+    IF NEW.invoice_number IS NULL THEN
+        NEW.invoice_number := fn_generate_invoice_number(NEW.client_id);
+    END IF;
+    RETURN NEW;
+END;
+\$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_set_invoice_number
+BEFORE INSERT ON Invoices
+FOR EACH ROW
+EXECUTE FUNCTION fn_invoice_number_trigger();
+
