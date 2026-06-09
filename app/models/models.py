@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 import datetime
@@ -30,9 +30,9 @@ class Invoice(Base):
     issue_date = Column(DateTime, default=lambda: datetime.datetime.now(timezone.utc))
     due_date = Column(DateTime)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=False)
-    total_ht = Column(Float, default=0.0)
-    total_tva = Column(Float, default=0.0)
-    total_ttc = Column(Float, default=0.0)
+    total_ht = Column(Numeric(10, 2), default=0.0)
+    total_tva = Column(Numeric(10, 2), default=0.0)
+    total_ttc = Column(Numeric(10, 2), default=0.0)
     status = Column(String, default="draft") # draft, sent, paid, cancelled
     
     client = relationship("Client", back_populates="invoices")
@@ -43,10 +43,10 @@ class InvoiceLine(Base):
     id = Column(Integer, primary_key=True, index=True)
     invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
     description = Column(String, nullable=False)
-    quantity = Column(Float, nullable=False)
-    unit_price_ht = Column(Float, nullable=False)
-    tva_rate = Column(Float, nullable=False) # e.g., 20.0
-    total_ht = Column(Float, nullable=False)
+    quantity = Column(Numeric(10, 2), nullable=False)
+    unit_price_ht = Column(Numeric(10, 2), nullable=False)
+    tva_rate = Column(Numeric(5, 2), nullable=False) # e.g., 20.0
+    total_ht = Column(Numeric(10, 2), nullable=False)
     
     invoice = relationship("Invoice", back_populates="lines")
 
