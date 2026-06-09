@@ -1,9 +1,13 @@
 from fastapi import FastAPI
 from app.api import auth
 from app.api.deps import get_current_user
+from app.api import clients
+
 from fastapi import Depends
 
 app = FastAPI(title="FacNor API")
+
+app.include_router(clients.router)
 
 app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 
