@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import ClientList from './components/ClientList';
 import ClientForm from './components/ClientForm';
 import InvoiceForm from './components/InvoiceForm';
+import InvoiceList from './components/InvoiceList';
 import { clientService } from './api/clientApi';
 import { Client, ClientCreate } from './types/client';
 import { Invoice } from './types/invoice';
@@ -12,6 +13,7 @@ function App() {
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [isAddingClient, setIsAddingClient] = useState(false);
   const [isAddingInvoice, setIsAddingInvoice] = useState(false);
+  const [showInvoices, setShowInvoices] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -74,20 +76,32 @@ function App() {
 
       <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'center', gap: '1rem' }}>
         {!isAddingClient && !editingClient && !isAddingInvoice && (
-          <button 
-            onClick={() => setIsAddingClient(true)} 
-            style={{ padding: '0.5rem 1rem', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '1rem' }}
-          >
-            + Ajouter un Client
-          </button>
-        )}
-        {!isAddingClient && !editingClient && !isAddingInvoice && (
-          <button 
-            onClick={() => setIsAddingInvoice(true)} 
-            style={{ padding: '0.5rem 1rem', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '1rem' }}
-          >
-            + Créer une Facture
-          </button>
+          <>
+            <button 
+              onClick={() => { setShowInvoices(false); setIsAddingClient(false); }} 
+              style={{ padding: '0.5rem 1rem', backgroundColor: showInvoices ? '#6c757d' : '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '1rem' }}
+            >
+              Clients
+            </button>
+            <button 
+              onClick={() => { setShowInvoices(true); setIsAddingClient(false); }} 
+              style={{ padding: '0.5rem 1rem', backgroundColor: showInvoices ? '#007bff' : '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '1rem' }}
+            >
+              Factures
+            </button>
+            <button 
+              onClick={() => setIsAddingClient(true)} 
+              style={{ padding: '0.5rem 1rem', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '1rem' }}
+            >
+              + Ajouter un Client
+            </button>
+            <button 
+              onClick={() => setIsAddingInvoice(true)} 
+              style={{ padding: '0.5rem 1rem', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '1rem' }}
+            >
+              + Créer une Facture
+            </button>
+          </>
         )}
       </div>
 
@@ -110,7 +124,13 @@ function App() {
           />
         )}
 
-        {!isAddingClient && !editingClient && <ClientList clients={clients} onEdit={setEditingClient} onDelete={handleDeleteClient} />}
+        {!isAddingClient && !editingClient && (
+          showInvoices ? (
+            <InvoiceList clients={clients} />
+          ) : (
+            <ClientList clients={clients} onEdit={setEditingClient} onDelete={handleDeleteClient} />
+          )
+        )}
       </div>
     </div>
   );
