@@ -191,9 +191,9 @@ const InvoiceList: React.FC<InvoiceListProps> = ({ clients }) => {
                     <td style={{ padding: '0.8rem' }}>
                       <button 
                         onClick={() => window.open(`/api/invoices/${invoice.id}/pdf`, '_blank')}
-                        style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', backgroundColor: '#17a2b8', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                        style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', backgroundColor: '#17a2b8', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
                       >
-                        PDF
+                        Télécharger PDF
                       </button>
                     </td>
                   </tr>
