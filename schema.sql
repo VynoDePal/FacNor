@@ -118,3 +118,69 @@ BEFORE INSERT ON Invoices
 FOR EACH ROW
 EXECUTE FUNCTION fn_invoice_number_trigger();
 
+-- Function to calculate InvoiceItem totals
+CREATE OR REPLACE FUNCTION fn_calculate_item_totals() 
+RETURNS TRIGGER AS \$$
+BEGIN
+    -- Line total excluding tax (HT) = quantity * unit_price
+    NEW.line_total_excluding_tax := ROUND(NEW.quantity * NEW.unit_price, 2);
+    
+    -- Line tax amount = line_total_excluding_tax * (tax_rate / 100)
+    NEW.line_tax_amount := ROUND(NEW.line_total_excluding_tax * (NEW.tax_rate / 100.0), 2);
+    
+    -- Line total including tax (TTC) = line_total_excluding_tax + line_tax_amount
+    NEW.line_total_including_tax := NEW.line_total_excluding_tax + NEW.line_tax_amount;
+    
+    RETURN NEW;
+END;
+\$$ LANGUAGE plpgsql;
+
+-- Trigger for InvoiceItems calculation
+CREATE TRIGGER trg_calculate_item_totals
+BEFORE INSERT OR UPDATE ON InvoiceItems
+FOR EACH ROW
+EXECUTE FUNCTION fn_calculate_item_totals();
+
+-- Function to update Invoice totals based on its items
+CREATE OR REPLACE FUNCTION fn_update_invoice_totals() 
+RETURNS TRIGGER AS \$$
+DECLARE
+    v_invoice_id UUID;
+BEGIN
+    -- Get the invoice_id from the modified item
+    IF (TG_OP = 'DELETE') THEN
+        v_invoice_id := OLD.invoice_id;
+    ELSE
+        v_invoice_id := NEW.invoice_id;
+    END IF;
+
+    -- Update the parent invoice totals
+    UPDATE Invoices
+    SET 
+        total_amount_excluding_tax = (
+            SELECT COALESCE(SUM(line_total_excluding_tax), 0) 
+            FROM InvoiceItems 
+            WHERE invoice_id = v_invoice_id
+        ),
+        total_tax_amount = (
+            SELECT COALESCE(SUM(line_tax_amount), 0) 
+            FROM InvoiceItems 
+            WHERE invoice_id = v_invoice_id
+        ),
+        total_amount_including_tax = (
+            SELECT COALESCE(SUM(line_total_including_tax), 0) 
+            FROM InvoiceItems 
+            WHERE invoice_id = v_invoice_id
+        ),
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = v_invoice_id;
+
+    RETURN NULL; -- result is ignored since this is an AFTER trigger
+END;
+\$$ LANGUAGE plpgsql;
+
+-- Trigger for Invoice totals update
+CREATE TRIGGER trg_update_invoice_totals
+AFTER INSERT OR UPDATE OR DELETE ON InvoiceItems
+FOR EACH ROW
+EXECUTE FUNCTION fn_update_invoice_totals();
