@@ -17,7 +17,7 @@ def read_clients(skip: int = 0, limit: int = 100, db: Session = Depends(get_db))
 
 @router.post("/", response_model=ClientOut, status_code=status.HTTP_201_CREATED)
 def create_client(client: ClientCreate, db: Session = Depends(get_db)):
-    db_client = models.Client(**client.dict())
+    db_client = models.Client(**client.model_dump())
     db.add(db_client)
     db.commit()
     db.refresh(db_client)
@@ -36,7 +36,7 @@ def update_client(client_id: int, client_update: ClientUpdate, db: Session = Dep
     if db_client is None:
         raise HTTPException(status_code=404, detail="Client not found")
     
-    update_data = client_update.dict(exclude_unset=True)
+    update_data = client_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(db_client, key, value)
     
