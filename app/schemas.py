@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, Union
+from decimal import Decimal
 from datetime import datetime
 
 class UserBase(BaseModel):
@@ -50,10 +51,10 @@ class ClientOut(ClientBase):
 
 class InvoiceLineBase(BaseModel):
     description: str
-    quantity: float
-    unit_price_ht: float
-    tva_rate: float
-    total_ht: float
+    quantity: Union[float, Decimal]
+    unit_price_ht: Union[float, Decimal]
+    tva_rate: Union[float, Decimal]
+    total_ht: Union[float, Decimal]
 
 class InvoiceLineCreate(InvoiceLineBase):
     pass
@@ -70,9 +71,9 @@ class InvoiceBase(BaseModel):
     issue_date: Optional[datetime] = None
     due_date: Optional[datetime] = None
     client_id: int
-    total_ht: float = 0.0
-    total_tva: float = 0.0
-    total_ttc: float = 0.0
+    total_ht: Union[float, Decimal] = 0.0
+    total_tva: Union[float, Decimal] = 0.0
+    total_ttc: Union[float, Decimal] = 0.0
     status: str = "draft"
 
 class InvoiceCreate(InvoiceBase):
@@ -82,9 +83,9 @@ class InvoiceUpdate(BaseModel):
     invoice_number: Optional[str] = None
     issue_date: Optional[datetime] = None
     due_date: Optional[datetime] = None
-    total_ht: Optional[float] = None
-    total_tva: Optional[float] = None
-    total_ttc: Optional[float] = None
+    total_ht: Optional[Union[float, Decimal]] = None
+    total_tva: Optional[Union[float, Decimal]] = None
+    total_ttc: Optional[Union[float, Decimal]] = None
     status: Optional[str] = None
 
 class InvoiceOut(InvoiceBase):
