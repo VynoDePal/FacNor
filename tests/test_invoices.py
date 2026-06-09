@@ -168,3 +168,62 @@ def test_automatic_invoice_numbering(client, db):
     assert num4.startswith("FAC-")
     assert num4.endswith("000003")
 
+
+def test_read_invoices_filtering(client, db):
+    # Setup: Create multiple clients and invoices
+    c1_resp = client.post("/clients/", json={"name": "C1", "siren": "S1"})
+    c1_id = c1_resp.json()["id"]
+    c2_resp = client.post("/clients/", json={"name": "C2", "siren": "S2"})
+    c2_id = c2_resp.json()["id"]
+
+    # Invoice 1: Client 1, 2023-01-01, 100€ TTC (83.33 * 1.2 = 99.996)
+    # To be precise, let's use unit_price_ht that gives round TTC
+    client.post("/invoices/", json={
+        "invoice_number": "FILT-1",
+        "client_id": c1_id,
+        "issue_date": "2023-01-01T10:00:00",
+        "lines": [{"description": "L1", "quantity": 1, "unit_price_ht": 100.0, "tva_rate": 0.0, "total_ht": 100.0}]
+    })
+    # Invoice 2: Client 1, 2023-06-01, 200€ TTC
+    client.post("/invoices/", json={
+        "invoice_number": "FILT-2",
+        "client_id": c1_id,
+        "issue_date": "2023-06-01T10:00:00",
+        "lines": [{"description": "L2", "quantity": 1, "unit_price_ht": 200.0, "tva_rate": 0.0, "total_ht": 200.0}]
+    })
+    # Invoice 3: Client 2, 2023-01-01, 300€ TTC
+    client.post("/invoices/", json={
+        "invoice_number": "FILT-3",
+        "client_id": c2_id,
+        "issue_date": "2023-01-01T10:00:00",
+        "lines": [{"description": "L3", "quantity": 1, "unit_price_ht": 300.0, "tva_rate": 0.0, "total_ht": 300.0}]
+    })
+
+    # Test filter by client
+    resp = client.get(f"/invoices/?client_id={c1_id}")
+    assert len(resp.json()) == 2
+    
+    # Test filter by start_date
+    resp = client.get("/invoices/?start_date=2023-05-01")
+    assert len(resp.json()) == 1
+    assert resp.json()[0]["invoice_number"] == "FILT-2"
+    
+    # Test filter by end_date
+    resp = client.get("/invoices/?end_date=2023-02-01")
+    assert len(resp.json()) == 2 # FILT-1 and FILT-3
+    
+    # Test filter by min_amount
+    resp = client.get("/invoices/?min_amount=250")
+    assert len(resp.json()) == 1
+    assert resp.json()[0]["invoice_number"] == "FILT-3"
+    
+    # Test filter by max_amount
+    resp = client.get("/invoices/?max_amount=150")
+    assert len(resp.json()) == 1
+    assert resp.json()[0]["invoice_number"] == "FILT-1"
+
+    # Test combined filters
+    resp = client.get(f"/invoices/?client_id={c1_id}&min_amount=150")
+    assert len(resp.json()) == 1
+    assert resp.json()[0]["invoice_number"] == "FILT-2"
+
