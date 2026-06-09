@@ -49,3 +49,10 @@ class InvoiceLine(Base):
     total_ht = Column(Float, nullable=False)
     
     invoice = relationship("Invoice", back_populates="lines")
+
+class InvoiceSequence(Base):
+    __tablename__ = "invoice_sequences"
+    id = Column(Integer, primary_key=True, index=True)
+    sequence_name = Column(String, unique=True, nullable=False)
+    current_value = Column(Integer, default=0)
+
