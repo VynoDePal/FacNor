@@ -5,6 +5,7 @@ from app.core.database import get_db
 from app.models import models
 from app.schemas import InvoiceCreate, InvoiceOut, InvoiceUpdate
 from app.services.numbering import get_next_invoice_number
+from app.services.tax_calculator import TaxCalculator
 
 router = APIRouter(
     prefix="/invoices",
@@ -36,25 +37,34 @@ def create_invoice(invoice: InvoiceCreate, db: Session = Depends(get_db)):
     db.flush() # Get the invoice ID
 
     # Create invoice lines
+    lines_data = []
     for line_data in invoice.lines:
+        # Use TaxCalculator to ensure line total is correct
+        line_total_ht = TaxCalculator.calculate_line_total(
+            line_data.quantity, line_data.unit_price_ht, line_data.tva_rate
+        )
+        
         db_line = models.InvoiceLine(
             invoice_id=db_invoice.id,
             description=line_data.description,
             quantity=line_data.quantity,
             unit_price_ht=line_data.unit_price_ht,
             tva_rate=line_data.tva_rate,
-            total_ht=line_data.total_ht
+            total_ht=line_total_ht
         )
         db.add(db_line)
+        lines_data.append({
+            'quantity': line_data.quantity,
+            'unit_price_ht': line_data.unit_price_ht,
+            'tva_rate': line_data.tva_rate
+        })
 
-    # Recalculate totals based on lines (optional but recommended)
-    total_ht = sum(line.total_ht for line in invoice.lines)
-    total_tva = sum(line.quantity * line.unit_price_ht * (line.tva_rate / 100) for line in invoice.lines)
-    total_ttc = total_ht + total_tva
+    # Recalculate totals based on lines
+    totals = TaxCalculator.calculate_invoice_totals(lines_data)
     
-    db_invoice.total_ht = total_ht
-    db_invoice.total_tva = total_tva
-    db_invoice.total_ttc = total_ttc
+    db_invoice.total_ht = totals.total_ht
+    db_invoice.total_tva = totals.total_tva
+    db_invoice.total_ttc = totals.total_ttc
 
     db.commit()
     db.refresh(db_invoice)
