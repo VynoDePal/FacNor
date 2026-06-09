@@ -116,3 +116,55 @@ def test_delete_invoice(client, db):
     
     response = client.get(f"/invoices/{invoice_id}")
     assert response.status_code == 404
+
+def test_automatic_invoice_numbering(client, db):
+    # Create a client
+    client_resp = client.post(
+        "/clients/",
+        json={"name": "Auto Num Client", "email": "auto@example.com", "address": "123 Auto St", "vat_number": "FR222", "siren": "222"}
+    )
+    client_id = client_resp.json()["id"]
+
+    # Create first invoice without number
+    inv1_data = {
+        "client_id": client_id,
+        "lines": [{"description": "L1", "quantity": 1, "unit_price_ht": 10.0, "tva_rate": 20.0, "total_ht": 10.0}]
+    }
+    resp1 = client.post("/invoices/", json=inv1_data)
+    assert resp1.status_code == 201
+    num1 = resp1.json()["invoice_number"]
+    assert num1.startswith("FAC-")
+    assert num1.endswith("000001")
+
+    # Create second invoice without number
+    inv2_data = {
+        "client_id": client_id,
+        "lines": [{"description": "L2", "quantity": 1, "unit_price_ht": 10.0, "tva_rate": 20.0, "total_ht": 10.0}]
+    }
+    resp2 = client.post("/invoices/", json=inv2_data)
+    assert resp2.status_code == 201
+    num2 = resp2.json()["invoice_number"]
+    assert num2.startswith("FAC-")
+    assert num2.endswith("000002")
+
+    # Create third invoice with a specific number (should not affect sequence)
+    inv3_data = {
+        "invoice_number": "MANUAL-001",
+        "client_id": client_id,
+        "lines": [{"description": "L3", "quantity": 1, "unit_price_ht": 10.0, "tva_rate": 20.0, "total_ht": 10.0}]
+    }
+    resp3 = client.post("/invoices/", json=inv3_data)
+    assert resp3.status_code == 201
+    assert resp3.json()["invoice_number"] == "MANUAL-001"
+
+    # Create fourth invoice without number (should follow the sequence)
+    inv4_data = {
+        "client_id": client_id,
+        "lines": [{"description": "L4", "quantity": 1, "unit_price_ht": 10.0, "tva_rate": 20.0, "total_ht": 10.0}]
+    }
+    resp4 = client.post("/invoices/", json=inv4_data)
+    assert resp4.status_code == 201
+    num4 = resp4.json()["invoice_number"]
+    assert num4.startswith("FAC-")
+    assert num4.endswith("000003")
+

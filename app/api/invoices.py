@@ -4,6 +4,7 @@ from typing import List, Optional
 from app.core.database import get_db
 from app.models import models
 from app.schemas import InvoiceCreate, InvoiceOut, InvoiceUpdate
+from app.services.numbering import get_next_invoice_number
 
 router = APIRouter(
     prefix="/invoices",
@@ -17,9 +18,12 @@ def create_invoice(invoice: InvoiceCreate, db: Session = Depends(get_db)):
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
 
+    # Generate invoice number if not provided
+    invoice_num = invoice.invoice_number or get_next_invoice_number(db)
+
     # Create invoice object
     db_invoice = models.Invoice(
-        invoice_number=invoice.invoice_number,
+        invoice_number=invoice_num,
         issue_date=invoice.issue_date,
         due_date=invoice.due_date,
         client_id=invoice.client_id,

@@ -66,7 +66,7 @@ class InvoiceLineOut(InvoiceLineBase):
         from_attributes = True
 
 class InvoiceBase(BaseModel):
-    invoice_number: str
+    invoice_number: Optional[str] = None
     issue_date: Optional[datetime] = None
     due_date: Optional[datetime] = None
     client_id: int
