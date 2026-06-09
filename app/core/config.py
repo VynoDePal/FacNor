@@ -14,7 +14,8 @@ class Settings(BaseSettings):
     COMPANY_PHONE: str = "01 23 45 67 89"
 
 
-    class Config:
-        env_file = ".env"
+    model_config = {
+        "env_file": ".env"
+    }
 
 settings = Settings()
