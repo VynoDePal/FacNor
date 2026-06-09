@@ -1,29 +1,7 @@
 import pytest
-from fastapi.testclient import TestClient
-from app.main import app
-from app.core.database import Base
 from app.core.database import get_db
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
-# Setup a separate database for testing
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_db.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base.metadata.create_all(bind=engine)
-
-def override_get_db():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
-
-app.dependency_overrides[get_db] = override_get_db
-
-client = TestClient(app)
-
-def test_create_client():
+def test_create_client(client):
     response = client.post(
         "/clients/",
         json={"name": "Test Client", "email": "test@example.com", "address": "123 Test St", "vat_number": "FR123456789", "siren": "123456789"}
@@ -33,7 +11,7 @@ def test_create_client():
     assert data["name"] == "Test Client"
     assert data["siren"] == "123456789"
 
-def test_read_client():
+def test_read_client(client):
     # Create a client first
     response = client.post(
         "/clients/",
@@ -47,7 +25,7 @@ def test_read_client():
     data = response.json()
     assert data["name"] == "Read Client"
 
-def test_update_client():
+def test_update_client(client):
     # Create a client first
     response = client.post(
         "/clients/",
@@ -64,7 +42,7 @@ def test_update_client():
     data = response.json()
     assert data["name"] == "Updated Name"
 
-def test_delete_client():
+def test_delete_client(client):
     # Create a client first
     response = client.post(
         "/clients/",

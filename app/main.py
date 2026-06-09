@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from app.core.database import engine, Base
 from app.models import models
-from app.api import auth, clients
+from app.api import auth, clients, invoices
 from app.api.dependencies import get_current_user
 from fastapi import Depends
 
@@ -12,6 +12,7 @@ app = FastAPI(title="FacNor API")
 
 app.include_router(auth.router)
 app.include_router(clients.router)
+app.include_router(invoices.router)
 
 
 @app.get("/")

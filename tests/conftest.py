@@ -6,25 +6,42 @@ pas versionné). Importe récursivement les modules de `app` pour que TOUS les
 modèles SQLAlchemy soient enregistrés sur `Base.metadata` avant `create_all`.
 """
 
-import importlib
-import pkgutil
-
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from app.main import app
+from app.core.database import Base, get_db
 
-from app.core.database import Base, engine
+# Use a separate database for tests
+TEST_DATABASE_URL = "sqlite:///./test_facnor.db"
+test_engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
-import app as _app_pkg
-
-for _mod in pkgutil.walk_packages(_app_pkg.__path__, _app_pkg.__name__ + "."):
-    try:
-        importlib.import_module(_mod.name)
-    except Exception:
-        pass
-
-
-@pytest.fixture(autouse=True)
-def _db_schema():
-    """Schéma frais par test : create_all avant, drop_all après (isolation)."""
-    Base.metadata.create_all(bind=engine)
+@pytest.fixture(scope="session", autouse=True)
+def setup_database():
+    Base.metadata.create_all(bind=test_engine)
     yield
-    Base.metadata.drop_all(bind=engine)
+    Base.metadata.drop_all(bind=test_engine)
+
+@pytest.fixture
+def db():
+    connection = TestingSessionLocal()
+    try:
+        yield connection
+    finally:
+        connection.close()
+
+@pytest.fixture
+def client():
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+    
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
