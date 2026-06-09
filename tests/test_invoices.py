@@ -227,3 +227,23 @@ def test_read_invoices_filtering(client, db):
     assert len(resp.json()) == 1
     assert resp.json()[0]["invoice_number"] == "FILT-2"
 
+
+def test_download_invoice_pdf(client, db):
+    # Create a client and invoice
+    client_resp = client.post("/clients/", json={"name": "PDF Client", "siren": "123"})
+    client_id = client_resp.json()["id"]
+    
+    inv_resp = client.post("/invoices/", json={
+        "invoice_number": "PDF-TEST",
+        "client_id": client_id,
+        "lines": [{"description": "L1", "quantity": 1, "unit_price_ht": 10.0, "tva_rate": 20.0, "total_ht": 10.0}]
+    })
+    invoice_id = inv_resp.json()["id"]
+    
+    # Download PDF
+    response = client.get(f"/invoices/{invoice_id}/pdf")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert "attachment" in response.headers["content-disposition"]
+    assert len(response.content) > 0
+
