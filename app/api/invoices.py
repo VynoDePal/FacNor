@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
+from datetime import date, datetime, time
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.core.database import get_db
@@ -75,10 +76,25 @@ def create_invoice(invoice: InvoiceCreate, db: Session = Depends(get_db)):
     return db_invoice
 
 @router.get("/", response_model=List[InvoiceOut])
-def read_invoices(client_id: Optional[int] = None, db: Session = Depends(get_db)):
+def read_invoices(
+    client_id: Optional[int] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    min_amount: Optional[float] = None,
+    max_amount: Optional[float] = None,
+    db: Session = Depends(get_db)
+):
     query = db.query(models.Invoice)
     if client_id:
         query = query.filter(models.Invoice.client_id == client_id)
+    if start_date:
+        query = query.filter(models.Invoice.issue_date >= datetime.combine(start_date, time.min))
+    if end_date:
+        query = query.filter(models.Invoice.issue_date <= datetime.combine(end_date, time.max))
+    if min_amount:
+        query = query.filter(models.Invoice.total_ttc >= min_amount)
+    if max_amount:
+        query = query.filter(models.Invoice.total_ttc <= max_amount)
     return query.all()
 
 @router.get("/{invoice_id}", response_model=InvoiceOut)
