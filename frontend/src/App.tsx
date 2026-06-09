@@ -60,6 +60,7 @@ function App() {
 
   const handleSaveInvoice = (invoice: Invoice) => {
     alert(`Facture ${invoice.invoice_number || ''} enregistrée avec succès !`);
+    window.open(`/api/invoices/${invoice.id}/pdf`, '_blank');
     setIsAddingInvoice(false);
   };
 
