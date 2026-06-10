@@ -2,3 +2,5 @@ fastapi
 sqlalchemy
 pytest
 uvicorn
+python-jose[cryptography]
+passlib[bcrypt]
