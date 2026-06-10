@@ -36,3 +36,13 @@ CREATE TABLE IF NOT EXISTS lignes_facture (
     taux_tva REAL NOT NULL CHECK(taux_tva >= 0),
     FOREIGN KEY (facture_id) REFERENCES factures(id) ON DELETE CASCADE
 );
+
+-- Users table
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    hashed_password TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
