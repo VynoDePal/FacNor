@@ -1,24 +1,39 @@
 import React, { useState } from "react";
 import ClientManager from "./components/ClientManager";
 import InvoiceForm from "./components/InvoiceForm";
+import InvoiceList from "./components/InvoiceList";
 
 function App() {
-  const [showInvoiceForm, setShowInvoiceForm] = useState(false);
+  const [view, setView] = useState("clients"); // "clients", "invoices", "create_invoice"
 
   return (
     <div style={{ padding: '20px' }}>
       <h1>FacNor - Gestion de Factures</h1>
       <p>Bienvenue sur l'application de gestion de factures normalisées.</p>
       <hr />
-      <div style={{ marginBottom: '20px' }}>
+      <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
         <button 
-          onClick={() => setShowInvoiceForm(!showInvoiceForm)}
-          style={{ padding: '10px 20px', cursor: 'pointer' }}
+          onClick={() => setView("clients")}
+          style={{ padding: '10px 20px', cursor: 'pointer', backgroundColor: view === "clients" ? "#ddd" : "#fff" }}
         >
-          {showInvoiceForm ? "Hide Invoice Form" : "Create New Invoice"}
+          Clients
+        </button>
+        <button 
+          onClick={() => setView("invoices")}
+          style={{ padding: '10px 20px', cursor: 'pointer', backgroundColor: view === "invoices" ? "#ddd" : "#fff" }}
+        >
+          Factures
+        </button>
+        <button 
+          onClick={() => setView("create_invoice")}
+          style={{ padding: '10px 20px', cursor: 'pointer', backgroundColor: view === "create_invoice" ? "#ddd" : "#fff" }}
+        >
+          Nouvelle Facture
         </button>
       </div>
-      {showInvoiceForm ? <InvoiceForm /> : <ClientManager />}
+      {view === "clients" && <ClientManager />}
+      {view === "invoices" && <InvoiceList />}
+      {view === "create_invoice" && <InvoiceForm />}
     </div>
   );
 }
