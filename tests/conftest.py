@@ -7,12 +7,16 @@ from app.main import app
 from app.db.database import Base, get_db
 import os
 
-# Use an in-memory database for testing
-SQLALCHEMY_DATABASE_URL = "sqlite:///"
+# Import models to ensure they are registered with Base.metadata
+from app.models.user import User
+from app.models.client import Client
+from app.models.facture import Facture, LigneFacture
+
+# Use a file-based database for testing to avoid issues with in-memory SQLite and connection pooling
+SQLALCHEMY_DATABASE_URL = "sqlite:///./test_facnor.db"
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     connect_args={"check_same_thread": False},
-    poolclass=StaticPool
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
