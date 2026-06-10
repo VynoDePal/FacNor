@@ -19,9 +19,12 @@ def override_get_db():
     finally:
         db.close()
 
-app.dependency_overrides[get_db] = override_get_db
-
-client = TestClient(app)
+@pytest.fixture
+def client_test():
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as session_client:
+        yield session_client
+    app.dependency_overrides.clear()
 
 @pytest.fixture(autouse=True)
 def setup_db():
@@ -29,43 +32,43 @@ def setup_db():
     yield
     Base.metadata.drop_all(bind=engine)
 
-def test_create_user():
+def test_create_user(client_test):
     user_data = {"username": "testuser", "email": "test@example.com", "password": "testpassword"}
-    response = client.post("/users/", json=user_data)
+    response = client_test.post("/users/", json=user_data)
     assert response.status_code == 200
     data = response.json()
     assert data["username"] == "testuser"
     assert data["email"] == "test@example.com"
 
-def test_auth_flow():
+def test_auth_flow(client_test):
     # 1. Create a user
     user_data = {"username": "authuser", "email": "auth@example.com", "password": "authpassword"}
-    client.post("/users/", json=user_data)
+    client_test.post("/users/", json=user_data)
 
     # 2. Login to get token
     login_data = {"username": "authuser", "password": "authpassword"}
-    response = client.post("/token", data=login_data)
+    response = client_test.post("/token", data=login_data)
     assert response.status_code == 200
     token = response.json()["access_token"]
 
     # 3. Access protected route /me
-    response = client.get("/me", headers={"Authorization": f"Bearer {token}"})
+    response = client_test.get("/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     data = response.json()
     assert data["username"] == "authuser"
 
-def test_protected_route_no_token():
-    response = client.get("/me")
+def test_protected_route_no_token(client_test):
+    response = client_test.get("/me")
     assert response.status_code == 401
 
-def test_protected_route_invalid_token():
-    response = client.get("/me", headers={"Authorization": "Bearer invalidtoken"})
+def test_protected_route_invalid_token(client_test):
+    response = client_test.get("/me", headers={"Authorization": "Bearer invalidtoken"})
     assert response.status_code == 401
 
-def test_login_wrong_password():
+def test_login_wrong_password(client_test):
     user_data = {"username": "wrongpass", "email": "wrong@example.com", "password": "correctpassword"}
-    client.post("/users/", json=user_data)
+    client_test.post("/users/", json=user_data)
 
     login_data = {"username": "wrongpass", "password": "wrongpassword"}
-    response = client.post("/token", data=login_data)
+    response = client_test.post("/token", data=login_data)
     assert response.status_code == 401
