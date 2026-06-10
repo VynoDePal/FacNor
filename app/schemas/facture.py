@@ -13,6 +13,9 @@ class LigneFactureCreate(LigneFactureBase):
 
 class LigneFacture(LigneFactureBase):
     id: int
+    montant_ht: float
+    montant_tva: float
+    montant_ttc: float
 
     class Config:
         from_attributes = True
@@ -40,6 +43,9 @@ class Facture(FactureBase):
     id: int
     created_at: datetime
     lignes: List[LigneFacture] = []
+    total_ht: float
+    total_tva: float
+    total_ttc: float
 
     class Config:
         from_attributes = True
