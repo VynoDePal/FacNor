@@ -68,8 +68,22 @@ def create_facture(facture: FactureCreate, db: Session = Depends(get_db)):
     return new_facture
 
 @router.get("/", response_model=List[Facture])
-def read_factures(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return db.query(FactureModel).offset(skip).limit(limit).all()
+def read_factures(
+    skip: int = 0, 
+    limit: int = 100, 
+    client_id: int = None, 
+    date_start: str = None, 
+    date_end: str = None, 
+    db: Session = Depends(get_db)
+):
+    query = db.query(FactureModel)
+    if client_id:
+        query = query.filter(FactureModel.client_id == client_id)
+    if date_start:
+        query = query.filter(FactureModel.date_facture >= date_start)
+    if date_end:
+        query = query.filter(FactureModel.date_facture <= date_end)
+    return query.offset(skip).limit(limit).all()
 
 @router.get("/{facture_id}", response_model=Facture)
 def read_facture(facture_id: int, db: Session = Depends(get_db)):
