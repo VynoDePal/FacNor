@@ -4,6 +4,9 @@ from app.database import get_db, init_db
 from sqlalchemy import text
 from . import crud, schemas
 
+from . import crud, schemas
+from fastapi.middleware.cors import CORSMiddleware
+
 from fastapi.security import OAuth2PasswordRequestForm
 from app.auth import (
     create_access_token, 
@@ -14,6 +17,18 @@ from app.auth import (
 from app.models import User
 
 app = FastAPI(title="FacNor API")
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title="FacNor API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify the actual origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.on_event("startup")
 def startup_event():
