@@ -4,3 +4,4 @@ pytest
 uvicorn
 python-jose[cryptography]
 passlib[bcrypt]
+reportlab
