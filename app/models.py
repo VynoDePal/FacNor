@@ -4,6 +4,11 @@ from datetime import datetime
 
 Base = declarative_base()
 
+class Sequence(Base):
+    __tablename__ = 'sequences'
+    name = Column(String, primary_key=True)
+    current_value = Column(Integer, nullable=False, default=0)
+
 class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True)
