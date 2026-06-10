@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
 import ClientList from './pages/ClientList';
 import ClientForm from './pages/ClientForm';
+import InvoiceList from './pages/InvoiceList';
 import './App.css';
 
 const ClientFormWrapper = () => {
@@ -21,6 +22,7 @@ function App() {
           <Route path="/clients" element={<ClientList />} />
           <Route path="/clients/new" element={<ClientForm />} />
           <Route path="/clients/edit/:id" element={<ClientFormWrapper />} />
+          <Route path="/factures" element={<InvoiceList />} />
           <Route path="/" element={<ClientList />} />
         </Routes>
       </div>
