@@ -39,4 +39,27 @@ export const clientService = {
   },
 };
 
+
+export const invoiceService = {
+  getAll: async (params: any = {}) => {
+    const response = await api.get('/invoices/', { params });
+    return response.data;
+  },
+  getById: async (id: number) => {
+    const response = await api.get(`/invoices/${id}`);
+    return response.data;
+  },
+  create: async (invoiceData: any) => {
+    const response = await api.post('/invoices/', invoiceData);
+    return response.data;
+  },
+  update: async (id: number, invoiceData: any) => {
+    const response = await api.put(`/invoices/${id}`, invoiceData);
+    return response.data;
+  },
+  delete: async (id: number) => {
+    await api.delete(`/invoices/${id}`);
+  },
+};
+
 export default api;
