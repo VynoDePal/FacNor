@@ -1,4 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status
+from typing import Optional
+from datetime import datetime
 from sqlalchemy.orm import Session
 from app.database import get_db, init_db
 from sqlalchemy import text
@@ -107,8 +109,8 @@ def create_invoice(invoice: schemas.InvoiceCreate, db: Session = Depends(get_db)
     return crud.create_invoice(db=db, invoice=invoice)
 
 @app.get("/invoices/", response_model=list[schemas.Invoice])
-def read_invoices(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return crud.get_invoices(db, skip=skip, limit=limit)
+def read_invoices(skip: int = 0, limit: int = 100, client_id: Optional[int] = None, date: Optional[datetime] = None, db: Session = Depends(get_db)):
+    return crud.get_invoices(db, skip=skip, limit=limit, client_id=client_id, date=date)
 
 @app.get("/invoices/{invoice_id}", response_model=schemas.Invoice)
 def read_invoice(invoice_id: int, db: Session = Depends(get_db)):
