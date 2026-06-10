@@ -128,3 +128,41 @@ def test_create_duplicate_facture_number():
     response = client.post("/factures/", json=facture_data)
     assert response.status_code == 400
     assert response.json()["detail"] == "Facture number already exists"
+
+def test_facture_calculations():
+    # Setup
+    client_data = {"nom": "Calc Client", "type_client": "particulier"}
+    client_resp = client.post("/clients/", json=client_data)
+    client_id = client_resp.json()["id"]
+
+    facture_data = {
+        "numero": "FAC-CALC-001",
+        "client_id": client_id,
+        "date_facture": "2023-10-27",
+        "lignes": [
+            {"description": "Item 1", "quantite": 2, "prix_unitaire_ht": 100.0, "taux_tva": 20.0},
+            {"description": "Item 2", "quantite": 1, "prix_unitaire_ht": 50.0, "taux_tva": 10.0}
+        ]
+    }
+    response = client.post("/factures/", json=facture_data)
+    assert response.status_code == 200 or response.status_code == 201
+    data = response.json()
+
+    # Item 1: 2 * 100 = 200 HT, 200 * 0.2 = 40 TVA, 240 TTC
+    # Item 2: 1 * 50 = 50 HT, 50 * 0.1 = 5 TVA, 55 TTC
+    # Totals: 250 HT, 45 TVA, 295 TTC
+
+    for ligne in data["lignes"]:
+        if ligne["description"] == "Item 1":
+            assert ligne["montant_ht"] == 200.0
+            assert ligne["montant_tva"] == 40.0
+            assert ligne["montant_ttc"] == 240.0
+        elif ligne["description"] == "Item 2":
+            assert ligne["montant_ht"] == 50.0
+            assert ligne["montant_tva"] == 5.0
+            assert ligne["montant_ttc"] == 55.0
+
+    assert data["total_ht"] == 250.0
+    assert data["total_tva"] == 45.0
+    assert data["total_ttc"] == 295.0
+
