@@ -12,6 +12,8 @@ from app.models.user import User
 from app.models.client import Client
 from app.models.facture import Facture, LigneFacture
 
+from app.models.sequence import Sequence
+
 # Use a file-based database for testing to avoid issues with in-memory SQLite and connection pooling
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test_facnor.db"
 engine = create_engine(
@@ -40,3 +42,12 @@ def setup_db():
     Base.metadata.drop_all(bind=engine)
 
 # Remove the duplicate imports and redefined overrides at the end of the file
+
+@pytest.fixture
+def db():
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
