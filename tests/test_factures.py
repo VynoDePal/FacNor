@@ -166,3 +166,57 @@ def test_facture_calculations():
     assert data["total_tva"] == 45.0
     assert data["total_ttc"] == 295.0
 
+
+def test_read_factures_filtering():
+    # Setup: Create two clients and several invoices
+    c1_data = {"nom": "Filter Client 1", "type_client": "particulier"}
+    c1_resp = client.post("/clients/", json=c1_data)
+    c1_id = c1_resp.json()["id"]
+    
+    c2_data = {"nom": "Filter Client 2", "type_client": "particulier"}
+    c2_resp = client.post("/clients/", json=c2_data)
+    c2_id = c2_resp.json()["id"]
+    
+    # Invoices for Client 1
+    f1_data = {"numero": "F-C1-D1", "client_id": c1_id, "date_facture": "2023-01-01", "lignes": []}
+    f2_data = {"numero": "F-C1-D2", "client_id": c1_id, "date_facture": "2023-06-01", "lignes": []}
+    client.post("/factures/", json=f1_data)
+    client.post("/factures/", json=f2_data)
+    
+    # Invoices for Client 2
+    f3_data = {"numero": "F-C2-D1", "client_id": c2_id, "date_facture": "2023-01-01", "lignes": []}
+    f4_data = {"numero": "F-C2-D2", "client_id": c2_id, "date_facture": "2023-12-01", "lignes": []}
+    client.post("/factures/", json=f3_data)
+    client.post("/factures/", json=f4_data)
+    
+    # Test filter by client_id
+    response = client.get(f"/factures/?client_id={c1_id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    assert all(f["client_id"] == c1_id for f in data)
+    
+    # Test filter by date_start
+    response = client.get("/factures/?date_start=2023-06-01")
+    assert response.status_code == 200
+    data = response.json()
+    # Should have F-C1-D2 (2023-06-01) and F-C2-D2 (2023-12-01)
+    assert len(data) == 2
+    assert all(f["date_facture"] >= "2023-06-01" for f in data)
+    
+    # Test filter by date_end
+    response = client.get("/factures/?date_end=2023-01-01")
+    assert response.status_code == 200
+    data = response.json()
+    # Should have F-C1-D1 and F-C2-D1
+    assert len(data) == 2
+    assert all(f["date_facture"] <= "2023-01-01" for f in data)
+    
+    # Test filter by client and date
+    response = client.get(f"/factures/?client_id={c1_id}&date_start=2023-06-01")
+    assert response.status_code == 200
+    data = response.json()
+    # Should only have F-C1-D2
+    assert len(data) == 1
+    assert data[0]["numero"] == "F-C1-D2"
+
