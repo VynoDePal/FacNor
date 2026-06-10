@@ -21,7 +21,7 @@ class LigneFacture(LigneFactureBase):
         from_attributes = True
 
 class FactureBase(BaseModel):
-    numero: str = Field(..., min_length=1)
+    numero: Optional[str] = Field(None, min_length=1)
     client_id: int
     date_facture: date
     date_echeance: Optional[date] = None
