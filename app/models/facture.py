@@ -18,6 +18,19 @@ class Facture(Base):
     client = relationship("Client", back_populates="factures")
     lignes = relationship("LigneFacture", back_populates="facture", cascade="all, delete-orphan")
 
+    @property
+    def total_ht(self):
+        return sum(ligne.montant_ht for ligne in self.lignes)
+
+    @property
+    def total_tva(self):
+        return sum(ligne.montant_tva for ligne in self.lignes)
+
+    @property
+    def total_ttc(self):
+        return sum(ligne.montant_ttc for ligne in self.lignes)
+
+
 class LigneFacture(Base):
     __tablename__ = "lignes_facture"
 
@@ -29,3 +42,15 @@ class LigneFacture(Base):
     taux_tva = Column(Float, nullable=False)
 
     facture = relationship("Facture", back_populates="lignes")
+
+    @property
+    def montant_ht(self):
+        return self.quantite * self.prix_unitaire_ht
+
+    @property
+    def montant_tva(self):
+        return self.montant_ht * (self.taux_tva / 100)
+
+    @property
+    def montant_ttc(self):
+        return self.montant_ht + self.montant_tva
