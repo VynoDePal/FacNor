@@ -1,36 +1,31 @@
-import { useState, useEffect } from 'react'
-import './App.css'
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
+import ClientList from './pages/ClientList';
+import ClientForm from './pages/ClientForm';
+import './App.css';
+
+const ClientFormWrapper = () => {
+  const { id } = useParams();
+  return <ClientForm clientId={id} />;
+};
 
 function App() {
-  const [message, setMessage] = useState('Loading...')
-  const [status, setStatus] = useState('')
-
-  useEffect(() => {
-    fetch('http://localhost:8000/')
-      .then(res => res.json())
-      .then(data => {
-        setMessage(data.message)
-        setStatus(data.status)
-      })
-      .catch(err => {
-        console.error('Error fetching data:', err)
-        setMessage('Error connecting to backend')
-        setStatus('error')
-      })
-  }, [])
-
   return (
-    <div className="App">
-      <h1>FacNor - Gestion de Factures</h1>
-      <div className="card">
-        <p>Backend Message: <strong>{message}</strong></p>
-        <p>Backend Status: <strong>{status}</strong></p>
+    <Router>
+      <nav style={{ padding: '10px', background: '#eee', marginBottom: '20px' }}>
+        <Link to="/clients" style={{ marginRight: '20px' }}>Clients</Link>
+        <Link to="/factures">Factures</Link>
+      </nav>
+      <div style={{ padding: '0 20px' }}>
+        <Routes>
+          <Route path="/clients" element={<ClientList />} />
+          <Route path="/clients/new" element={<ClientForm />} />
+          <Route path="/clients/edit/:id" element={<ClientFormWrapper />} />
+          <Route path="/" element={<ClientList />} />
+        </Routes>
       </div>
-      <p className="read-the-docs">
-        Frontend initialized with React + TypeScript + Vite.
-      </p>
-    </div>
-  )
+    </Router>
+  );
 }
 
-export default App
+export default App;
