@@ -31,7 +31,9 @@ def override_get_db():
 
 app.dependency_overrides[get_db] = override_get_db
 
-client = TestClient(app)
+@pytest.fixture
+def client():
+    return TestClient(app)
 
 @pytest.fixture(autouse=True)
 def setup_db():
