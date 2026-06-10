@@ -67,3 +67,12 @@ class Invoice(InvoiceBase):
     class Config:
         from_attributes = True
 
+
+class InvoiceUpdate(BaseModel):
+    date: Optional[datetime] = None
+    due_date: Optional[datetime] = None
+    client_id: Optional[int] = None
+    user_id: Optional[int] = None
+    status: Optional[str] = None
+
+
