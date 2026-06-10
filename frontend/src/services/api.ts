@@ -41,8 +41,8 @@ export const clientService = {
 
 
 export const invoiceService = {
-  getAll: async () => {
-    const response = await api.get('/invoices/');
+  getAll: async (params: any = {}) => {
+    const response = await api.get('/invoices/', { params });
     return response.data;
   },
   getById: async (id: number) => {
