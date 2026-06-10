@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.orm import Session
 from typing import List
 from app.db.database import get_db
@@ -6,6 +6,7 @@ from app.models.facture import Facture as FactureModel, LigneFacture as LigneFac
 from app.models.client import Client as ClientModel
 from app.schemas.facture import Facture, FactureCreate, FactureUpdate
 from app.core.numbering import get_next_sequence_value
+from app.services.pdf_service import PDFService
 
 router = APIRouter(
     prefix="/factures",
@@ -130,3 +131,20 @@ def delete_facture(facture_id: int, db: Session = Depends(get_db)):
     db.delete(db_facture)
     db.commit()
     return None
+
+@router.get("/{facture_id}/pdf", response_class=Response)
+def export_facture_pdf(facture_id: int, db: Session = Depends(get_db)):
+    db_facture = db.query(FactureModel).filter(FactureModel.id == facture_id).first()
+    if not db_facture:
+        raise HTTPException(status_code=404, detail="Facture not found")
+    
+    pdf_service = PDFService()
+    pdf_buffer = pdf_service.generate_invoice_pdf(db_facture)
+    
+    filename = f"facture_{db_facture.numero}.pdf"
+    return Response(
+        content=pdf_buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
