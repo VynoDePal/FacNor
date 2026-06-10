@@ -1,8 +1,11 @@
 from sqlalchemy.orm import Session
+import random
+import string
 from . import models, schemas
 from datetime import datetime
 import decimal
 
+from typing import Optional
 
 
 def get_client(db: Session, client_id: int):
@@ -42,8 +45,13 @@ def delete_client(db: Session, client_id: int):
 def get_invoice(db: Session, invoice_id: int):
     return db.query(models.Invoice).filter(models.Invoice.id == invoice_id).first()
 
-def get_invoices(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.Invoice).offset(skip).limit(limit).all()
+def get_invoices(db: Session, skip: int = 0, limit: int = 100, client_id: Optional[int] = None, date: Optional[datetime] = None):
+    query = db.query(models.Invoice)
+    if client_id:
+        query = query.filter(models.Invoice.client_id == client_id)
+    if date:
+        query = query.filter(models.Invoice.date == date)
+    return query.offset(skip).limit(limit).all()
 
 def create_invoice(db: Session, invoice: schemas.InvoiceCreate):
     # Calculate totals for each line and for the invoice
@@ -72,8 +80,8 @@ def create_invoice(db: Session, invoice: schemas.InvoiceCreate):
             total_ttc=line_ttc
         ))
 
-    # Generate invoice number (simplified)
-    invoice_number = f"INV-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    # Generate invoice number (simplified but more unique)
+    invoice_number = f"INV-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{ ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))}"
     
     db_invoice = models.Invoice(
         date=invoice.date,
