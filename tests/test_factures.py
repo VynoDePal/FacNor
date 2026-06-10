@@ -1,8 +1,7 @@
 import pytest
 from fastapi import status
-from tests.conftest import client
 
-def test_create_client():
+def test_create_client(client):
     # First create a client to associate with the facture
     client_data = {
         "nom": "Test Client",
@@ -34,7 +33,7 @@ def test_create_client():
     assert data["client_id"] == client_id
     assert len(data["lignes"]) == 2
 
-def test_read_facture():
+def test_read_facture(client):
     # Setup: create client and facture
     client_data = {"nom": "Read Client", "type_client": "particulier"}
     client_resp = client.post("/clients/", json=client_data)
@@ -54,7 +53,7 @@ def test_read_facture():
     assert response.status_code == 200
     assert response.json()["numero"] == "FAC-READ-001"
 
-def test_update_facture():
+def test_update_facture(client):
     # Setup
     client_data = {"nom": "Update Client", "type_client": "particulier"}
     client_resp = client.post("/clients/", json=client_data)
@@ -76,7 +75,7 @@ def test_update_facture():
     assert response.json()["statut"] == "payee"
     assert response.json()["notes"] == "Updated notes"
 
-def test_delete_facture():
+def test_delete_facture(client):
     # Setup
     client_data = {"nom": "Delete Client", "type_client": "particulier"}
     client_resp = client.post("/clients/", json=client_data)
@@ -99,7 +98,7 @@ def test_delete_facture():
     response = client.get(f"/factures/{facture_id}")
     assert response.status_code == 404
 
-def test_create_facture_non_existent_client():
+def test_create_facture_non_existent_client(client):
     facture_data = {
         "numero": "FAC-NO-CLIENT",
         "client_id": 999,
@@ -110,7 +109,7 @@ def test_create_facture_non_existent_client():
     assert response.status_code == 404
     assert response.json()["detail"] == "Client not found"
 
-def test_create_duplicate_facture_number():
+def test_create_duplicate_facture_number(client):
     # Setup
     client_data = {"nom": "Dup Client", "type_client": "particulier"}
     client_resp = client.post("/clients/", json=client_data)
@@ -129,7 +128,7 @@ def test_create_duplicate_facture_number():
     assert response.status_code == 400
     assert response.json()["detail"] == "Facture number already exists"
 
-def test_facture_calculations():
+def test_facture_calculations(client):
     # Setup
     client_data = {"nom": "Calc Client", "type_client": "particulier"}
     client_resp = client.post("/clients/", json=client_data)
@@ -167,7 +166,7 @@ def test_facture_calculations():
     assert data["total_ttc"] == 295.0
 
 
-def test_read_factures_filtering():
+def test_read_factures_filtering(client):
     # Setup: Create two clients and several invoices
     c1_data = {"nom": "Filter Client 1", "type_client": "particulier"}
     c1_resp = client.post("/clients/", json=c1_data)
