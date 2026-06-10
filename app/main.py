@@ -101,3 +101,33 @@ def delete_client(client_id: int, db: Session = Depends(get_db)):
     if not success:
         raise HTTPException(status_code=404, detail="Client not found")
     return None
+
+@app.post("/invoices/", response_model=schemas.Invoice, status_code=201)
+def create_invoice(invoice: schemas.InvoiceCreate, db: Session = Depends(get_db)):
+    return crud.create_invoice(db=db, invoice=invoice)
+
+@app.get("/invoices/", response_model=list[schemas.Invoice])
+def read_invoices(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    return crud.get_invoices(db, skip=skip, limit=limit)
+
+@app.get("/invoices/{invoice_id}", response_model=schemas.Invoice)
+def read_invoice(invoice_id: int, db: Session = Depends(get_db)):
+    db_invoice = crud.get_invoice(db, invoice_id=invoice_id)
+    if db_invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return db_invoice
+
+@app.put("/invoices/{invoice_id}", response_model=schemas.Invoice)
+def update_invoice(invoice_id: int, invoice: schemas.InvoiceUpdate, db: Session = Depends(get_db)):
+    db_invoice = crud.update_invoice(db, invoice_id=invoice_id, invoice=invoice)
+    if db_invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return db_invoice
+
+@app.delete("/invoices/{invoice_id}", status_code=204)
+def delete_invoice(invoice_id: int, db: Session = Depends(get_db)):
+    success = crud.delete_invoice(db, invoice_id=invoice_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return None
+
