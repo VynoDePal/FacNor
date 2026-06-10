@@ -6,32 +6,13 @@ from app.main import app
 from app.db.database import Base, get_db
 import os
 
-# Use a temporary file for tests to avoid readonly errors in /workspace
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_facnor.db"
+# Database setup is now handled in conftest.py
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-def override_get_db():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
-
-app.dependency_overrides[get_db] = override_get_db
 
 client = TestClient(app)
 
-@pytest.fixture(autouse=True)
-def setup_database():
-    # Create tables
-    Base.metadata.create_all(bind=engine)
-    yield
-    # Cleanup
-    Base.metadata.drop_all(bind=engine)
+# Database setup is now handled in conftest.py
+
 
 def test_register_user():
     response = client.post(
