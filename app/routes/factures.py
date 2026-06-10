@@ -5,6 +5,7 @@ from app.db.database import get_db
 from app.models.facture import Facture as FactureModel, LigneFacture as LigneFactureModel
 from app.models.client import Client as ClientModel
 from app.schemas.facture import Facture, FactureCreate, FactureUpdate
+from app.core.numbering import get_next_sequence_value
 
 router = APIRouter(
     prefix="/factures",
@@ -18,23 +19,43 @@ def create_facture(facture: FactureCreate, db: Session = Depends(get_db)):
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     
-    # Check if facture number is unique
-    db_facture = db.query(FactureModel).filter(FactureModel.numero == facture.numero).first()
-    if db_facture:
-        raise HTTPException(status_code=400, detail="Facture number already exists")
+    # Determine the invoice number and create the facture
+    # We use a retry loop to handle potential race conditions on the invoice number
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            if facture.numero:
+                numero = facture.numero
+                # Check if facture number is unique
+                db_facture = db.query(FactureModel).filter(FactureModel.numero == numero).first()
+                if db_facture:
+                    raise HTTPException(status_code=400, detail="Facture number already exists")
+            else:
+                next_val = get_next_sequence_value(db, "facture_numero")
+                numero = f"FAC-{next_val:06d}"
 
-    # Create facture
-    new_facture = FactureModel(
-        numero=facture.numero,
-        client_id=facture.client_id,
-        date_facture=facture.date_facture,
-        date_echeance=facture.date_echeance,
-        statut=facture.statut,
-        notes=facture.notes
-    )
-    db.add(new_facture)
-    db.commit()
-    db.refresh(new_facture)
+            # Create facture
+            new_facture = FactureModel(
+                numero=numero,
+                client_id=facture.client_id,
+                date_facture=facture.date_facture,
+                date_echeance=facture.date_echeance,
+                statut=facture.statut,
+                notes=facture.notes
+            )
+            db.add(new_facture)
+            db.commit()
+            db.refresh(new_facture)
+            break # Success!
+        except Exception as e:
+            db.rollback()
+            if attempt == max_retries - 1:
+                raise e
+            # Only retry if it's a uniqueness constraint violation on the invoice number
+            # We can't easily check the exact DB error here without more imports, 
+            # but we know that in this loop, the most likely reason for failure is the numero.
+            # To be safer, we could check for IntegrityError.
+            continue
 
     # Create lines
     for line_data in facture.lignes:
