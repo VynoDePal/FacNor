@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi import status as fastapi_status
 from sqlalchemy.orm import Session
+from typing import List, Optional
 from app.core.database import init_db, get_db
 from app.models.user import User
 from app.models.client import Client
@@ -10,6 +11,7 @@ from app.schemas.invoice import InvoiceCreate
 from app.schemas.invoice_read import InvoiceRead
 from app.services.calculator import InvoiceCalculator
 from app.services.numbering import InvoiceNumberingService
+from app.services.invoice_service import InvoiceService
 
 app = FastAPI(title="FacNor API")
 
@@ -24,6 +26,27 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+@app.get("/invoices/", response_model=List[InvoiceRead])
+async def list_invoices(
+    user_id: int,
+    client_id: Optional[int] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(Invoice).filter(Invoice.user_id == user_id)
+    
+    if client_id:
+        query = query.filter(Invoice.client_id == client_id)
+    if status:
+        query = query.filter(Invoice.status == status)
+    
+    # Use joinedload to avoid N+1 problem when accessing invoice.items in format_invoice_response
+    from sqlalchemy.orm import joinedload
+    invoices = query.options(joinedload(Invoice.items)).all()
+    
+    return [InvoiceService.format_invoice_response(inv) for inv in invoices]
+
 
 @app.post("/invoices/", response_model=InvoiceRead, status_code=fastapi_status.HTTP_201_CREATED)
 async def create_invoice(invoice_data: InvoiceCreate, user_id: int, db: Session = Depends(get_db)):
@@ -62,21 +85,8 @@ async def create_invoice(invoice_data: InvoiceCreate, user_id: int, db: Session 
     db.commit()
     db.refresh(db_invoice)
     
-    # 4. Calculate totals
-    totals = InvoiceCalculator.calculate_totals(db_invoice.items)
-    
-    # We don't store totals in the DB based on the current schema.sql
-    # But we return them in the response.
-    # To match InvoiceRead, we need to dynamically add totals.
-    
-    # Since InvoiceRead is a Pydantic model, we can't just add attributes to the SQLAlchemy model.
-    # We can create a custom response object or modify InvoiceRead to allow dynamic values.
-    # For the purpose of this task, we will return a dictionary or a modified Pydantic model.
-    
-    return {
-        **InvoiceRead.from_orm(db_invoice).dict(),
-        **totals
-    }
+    # 4. Calculate totals and format response
+    return InvoiceService.format_invoice_response(db_invoice)
 
 @app.get("/invoices/{invoice_id}", response_model=InvoiceRead)
 async def get_invoice(invoice_id: int, user_id: int, db: Session = Depends(get_db)):
@@ -84,9 +94,4 @@ async def get_invoice(invoice_id: int, user_id: int, db: Session = Depends(get_d
     if not db_invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
     
-    totals = InvoiceCalculator.calculate_totals(db_invoice.items)
-    
-    # Combine SQLAlchemy model with calculated totals
-    invoice_dict = InvoiceRead.from_orm(db_invoice).dict()
-    invoice_dict.update(totals)
-    return invoice_dict
+    return InvoiceService.format_invoice_response(db_invoice)
