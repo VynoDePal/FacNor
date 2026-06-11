@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connexion - FacNor</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f4f7f6; }
+        .login-container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
+        h1 { color: #333; text-align: center; margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        button { width: 100%; padding: 12px; cursor: pointer; border: none; border-radius: 4px; background-color: #007bff; color: white; font-weight: bold; font-size: 16px; }
+        button:hover { background-color: #0056b3; }
+        .error { color: red; text-align: center; margin-bottom: 15px; display: none; }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h1>FacNor - Connexion</h1>
+        <div id="errorMessage" class="error">Identifiants invalides</div>
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">Nom d'utilisateur</label>
+                <input type="text" id="username" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Mot de passe</label>
+                <input type="password" id="password" required>
+            </div>
+            <button type="submit">Se connecter</button>
+        </form>
+    </div>
+    <script>
+        document.getElementById('loginForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('errorMessage');
+
+            const formData = new FormData();
+            formData.append('username', username);
+            formData.append('password', password);
+
+            try {
+                const response = await fetch('/token', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    localStorage.setItem('facnor_token', data.access_token);
+                    window.location.href = 'invoices.html';
+                } else {
+                    errorDiv.style.display = 'block';
+                }
+            } catch (err) {
+                errorDiv.style.display = 'block';
+                console.error('Login error:', err);
+            }
+        };
+    </script>
+</body>
+</html>
