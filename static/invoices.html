@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Factures - FacNor</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f7f6; }
+        .container { max-width: 1100px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        h1 { color: #333; }
+        .btn { padding: 10px 15px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; text-decoration: none; display: inline-block; }
+        .btn-primary { background-color: #007bff; color: white; }
+        .btn-secondary { background-color: #6c757d; color: white; }
+        .btn-danger { background-color: #dc3545; color: white; }
+        .btn-success { background-color: #28a745; color: white; }
+        
+        .filters { display: flex; gap: 15px; margin-bottom: 20px; background: #f8f9fa; padding: 15px; border-radius: 8px; align-items: center; }
+        .filters select, .filters input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #ddd; }
+        th { background-color: #f8f9fa; }
+        
+        .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow-y: auto; }
+        .modal-content { background-color: #fefefe; margin: 2% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 800px; border-radius: 8px; }
+        
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, textarea, select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        .form-row { display: flex; gap: 15px; margin-bottom: 15px; }
+        .form-row > div { flex: 1; }
+        
+        .items-table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        .items-table th, .items-table td { padding: 8px; border: 1px solid #ddd; text-align: left; }
+        .items-table input { width: 100%; border: none; background: transparent; }
+        
+        .totals { text-align: right; margin-top: 15px; font-size: 1.1em; }
+        .totals div { margin-bottom: 5px; }
+        .totals .grand-total { font-weight: bold; font-size: 1.3em; color: #000; }
+        
+        .nav { margin-bottom: 20px; }
+        .nav a { margin-right: 15px; text-decoration: none; color: #007bff; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="nav">
+            <a href="clients.html">👥 Clients</a>
+            <a href="invoices.html">📄 Factures</a>
+            <a href="#" id="btnLogout">🚪 Déconnexion</a>
+        </div>
+        
+        <div class="header">
+            <h1>Liste des Factures</h1>
+            <button id="btnOpenCreate" class="btn btn-primary">➕ Créer une Facture</button>
+        </div>
+        
+        <div class="filters">
+            <label for="filterClient">Client:</label>
+            <select id="filterClient">
+                <option value="">Tous les clients</option>
+            </select>
+            <label for="filterStatus">Statut:</label>
+            <select id="filterStatus">
+                <option value="">Tous les statuts</option>
+                <option value="draft">Brouillon</option>
+                <option value="sent">Envoyée</option>
+                <option value="paid">Payée</option>
+                <option value="cancelled">Annulée</option>
+            </select>
+            <button id="btnApplyFilters" class="btn btn-secondary">Filtrer</button>
+        </div>
+        
+        <table id="invoicesTable">
+            <thead>
+                <tr>
+                    <th>N° Facture</th>
+                    <th>Client</th>
+                    <th>Date</th>
+                    <th>Total TTC</th>
+                    <th>Statut</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- Modal for Create Invoice -->
+    <div id="invoiceModal" class="modal">
+        <div class="modal-content">
+            <h2 id="modalTitle">Créer une Facture</h2>
+            <form id="invoiceForm">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="clientId">Client *</label>
+                        <select id="clientId" required>
+                            <option value="">-- Choisir un client --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="invoiceDate">Date de Facture *</label>
+                        <input type="date" id="invoiceDate" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="dueDate">Date d'échéance</label>
+                        <input type="date" id="dueDate">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="notes">Notes</label>
+                    <textarea id="notes" rows="2"></textarea>
+                </div>
+                
+                <h3>Lignes de produits</h3>
+                <table class="items-table">
+                    <thead>
+                        <tr>
+                            <th>Description</th>
+                            <th style="width: 80px;">Qté</th>
+                            <th style="width: 120px;">Prix Unitaire HT</th>
+                            <th style="width: 100px;">TVA</th>
+                            <th style="width: 100px;">Total HT</th>
+                            <th style="width: 40px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="itemsBody">
+                        <!-- Rows added by JS -->
+                    </tbody>
+                </table>
+                <button type="button" id="btnAddItem" class="btn btn-success" style="margin-bottom: 20px;">➕ Ajouter une ligne</button>
+                
+                <div class="totals">
+                    <div>Total HT: <span id="totalHt">0.00</span> €</div>
+                    <div>TVA: <span id="totalVat">0.00</span> €</div>
+                    <div class="grand-total">Total TTC: <span id="totalTtc">0.00</span> €</div>
+                </div>
+                
+                <div style="text-align: right; margin-top: 20px;">
+                    <button type="button" id="btnCloseModal" class="btn btn-secondary">Annuler</button>
+                    <button type="submit" class="btn btn-primary">Enregistrer la Facture</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/invoices/';
+        const CLIENTS_API = '/clients/';
+        
+        // --- Auth Check ---
+        function checkAuth() {
+            const token = localStorage.getItem('facnor_token');
+            if (!token) {
+                window.location.href = 'login.html';
+            }
+            return token;
+        }
+
+        const token = checkAuth();
+
+        // --- Helper: API request with Auth ---
+        async function apiRequest(url, options = {}) {
+            const token = localStorage.getItem('facnor_token');
+            const headers = { ...options.headers, 'Authorization': `Bearer ${token}` };
+            const response = await fetch(url, options);
+            if (response.status === 401) {
+                localStorage.removeItem('facnor_token');
+                window.location.href = 'login.html';
+            }
+            return response;
+        }
+
+        // --- List Invoices ---
+        async function fetchInvoices() {
+            const clientId = document.getElementById('filterClient').value;
+            const status = document.getElementById('filterStatus').value;
+            let url = API_BASE;
+            if (clientId) url += `?client_id=${clientId}`;
+            if (status) url += `&status=${status}`;
+            // If both are present, the first one used '?', second uses '&'. Handle that.
+            if (clientId && status) {
+                url = `${API_BASE}?client_id=${clientId}&status=${status}`;
+            } else if (status && !clientId) {
+                url = `${API_BASE}?status=${status}`;
+            }
+
+            const response = await apiRequest(url);
+            const invoices = await response.json();
+            const tbody = document.querySelector('#invoicesTable tbody');
+            tbody.innerHTML = '';
+            
+            invoices.forEach(inv => {
+                const tr = document.createElement('tr');
+                // Note: We assume the backend returns client details or we just show the ID if not joined
+                // For a better UX, we'd need the client name. 
+                // We'll try to see if the response contains client object or just ID.
+                const clientName = inv.client ? inv.client.name : `Client #${inv.client_id}`;
+                
+                tr.innerHTML = `
+                    <td>${inv.invoice_number}</td>
+                    <td>${clientName}</td>
+                    <td>${inv.date}</td>
+                    <td>${inv.total_ttc.toFixed(2)} €</td>
+                    <td>${inv.status}</td>
+                    <td>
+                        <button class="btn btn-secondary" onclick="viewInvoice(${inv.id})">Voir</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // --- Populate Filter and Form Clients ---
+        async function fetchClients() {
+            const response = await apiRequest(CLIENTS_API);
+            const clients = await response.json();
+            
+            const filterClient = document.getElementById('filterClient');
+            const formClient = document.getElementById('clientId');
+            
+            // Clear and refill
+            const defaultOption = '<option value="">Tous les clients</option>';
+            filterClient.innerHTML = defaultOption;
+            formClient.innerHTML = '<option value="">-- Choisir un client --</option>';
+            
+            clients.forEach(client => {
+                filterClient.innerHTML += `<option value="${client.id}">${client.name}</option>`;
+                formClient.innerHTML += `<option value="${client.id}">${client.name}</option>`;
+            });
+        }
+
+        // --- Invoice Item Management ---
+        function addItemRow() {
+            const tbody = document.getElementById('itemsBody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="text" class="item-desc" required></td>
+                <td><input type="number" class="item-qty" value="1" step="0.01" required oninput="calculateTotals()"></td>
+                <td><input type="number" class="item-price" value="0" step="0.01" required oninput="calculateTotals()"></td>
+                <td>
+                    <select class="item-vat" onchange="calculateTotals()">
+                        <option value="20">20%</option>
+                        <option value="10">10%</option>
+                        <option value="5.5">5.5%</option>
+                        <option value="0">0%</option>
+                    </select>
+                </td>
+                <td class="item-total-ht">0.00</td>
+                <td><button type="button" class="btn btn-danger" onclick="this.closest('tr').remove(); calculateTotals();">×</button></td>
+            `;
+            tbody.appendChild(tr);
+            // Set focus to description
+            tr.querySelector('.item-desc').focus();
+        }
+
+        function calculateTotals() {
+            let totalHt = 0;
+            let totalVat = 0;
+            
+            document.querySelectorAll('#itemsBody tr').forEach(tr => {
+                const qty = parseFloat(tr.querySelector('.item-qty').value) || 0;
+                const price = parseFloat(tr.querySelector('.item-price').value) || 0;
+                const vatRate = parseFloat(tr.querySelector('.item-vat').value) || 0;
+                
+                const lineHt = qty * price;
+                const lineVat = lineHt * (vatRate / 100);
+                
+                tr.querySelector('.item-total-ht').innerText = lineHt.toFixed(2);
+                
+                totalHt += lineHt;
+                totalVat += lineVat;
+            });
+            
+            document.getElementById('totalHt').innerText = totalHt.toFixed(2);
+            document.getElementById('totalVat').innerText = totalVat.toFixed(2);
+            document.getElementById('totalTtc').innerText = (totalHt + totalVat).toFixed(2);
+        }
+
+        // --- Form Submission ---
+        async function saveInvoice(e) {
+            e.preventDefault();
+            
+            const items = [];
+            document.querySelectorAll('#itemsBody tr').forEach(tr => {
+                items.push({
+                    description: tr.querySelector('.item-desc').value,
+                    quantity: parseFloat(tr.querySelector('.item-qty').value),
+                    unit_price_ht: parseFloat(tr.querySelector('.item-price').value),
+                    vat_rate: parseFloat(tr.querySelector('.item-vat').value)
+                });
+            });
+            
+            const data = {
+                client_id: parseInt(document.getElementById('clientId').value),
+                date: document.getElementById('invoiceDate').value,
+                due_date: document.getElementById('dueDate').value || null,
+                notes: document.getElementById('notes').value,
+                items: items
+            };
+            
+            const response = await apiRequest(API_BASE, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            
+            if (response.ok) {
+                alert('Facture créée avec succès !');
+                closeModal();
+                fetchInvoices();
+            } else {
+                const err = await response.json();
+                alert('Erreur: ' + (err.detail || 'Une erreur est survenue'));
+            }
+        }
+
+        // --- Modal & Event Listeners ---
+        function openModal() {
+            document.getElementById('invoiceModal').style.display = 'block';
+            // Set default date to today
+            document.getElementById('invoiceDate').value = new Date().toISOString().split('T')[0];
+            // Clear items and add one empty row
+            document.getElementById('itemsBody').innerHTML = '';
+            addItemRow();
+        }
+        
+        function closeModal() {
+            document.getElementById('invoiceModal').style.display = 'none';
+            document.getElementById('invoiceForm').reset();
+        }
+
+        document.getElementById('btnOpenCreate').onclick = openModal;
+        document.getElementById('btnCloseModal').onclick = closeModal;
+        document.getElementById('invoiceForm').onsubmit = saveInvoice;
+        document.getElementById('btnAddItem').onclick = addItemRow;
+        document.getElementById('btnApplyFilters').onclick = fetchInvoices;
+        document.getElementById('btnLogout').onclick = () => {
+            localStorage.removeItem('facnor_token');
+            window.location.href = 'login.html';
+        };
+
+        // Initial Load
+        window.onload = async () => {
+            await fetchClients();
+            await fetchInvoices();
+        };
+    </script>
+</body>
+</html>
