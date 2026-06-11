@@ -12,8 +12,14 @@ from app.schemas.invoice_read import InvoiceRead
 from app.services.calculator import InvoiceCalculator
 from app.services.numbering import InvoiceNumberingService
 from app.services.invoice_service import InvoiceService
+from app.schemas.client import ClientCreate, ClientUpdate, ClientRead
+
+from fastapi.staticfiles import StaticFiles
+
 
 app = FastAPI(title="FacNor API")
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.on_event("startup")
 async def on_startup():
@@ -94,4 +100,45 @@ async def get_invoice(invoice_id: int, user_id: int, db: Session = Depends(get_d
     if not db_invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
     
-    return InvoiceService.format_invoice_response(db_invoice)
+
+@app.get("/clients/", response_model=List[ClientRead])
+async def list_clients(user_id: int, db: Session = Depends(get_db)):
+    return db.query(Client).filter(Client.user_id == user_id).all()
+
+@app.post("/clients/", response_model=ClientRead, status_code=fastapi_status.HTTP_201_CREATED)
+async def create_client(client_data: ClientCreate, user_id: int, db: Session = Depends(get_db)):
+    db_client = Client(user_id=user_id, **client_data.model_dump())
+    db.add(db_client)
+    db.commit()
+    db.refresh(db_client)
+    return db_client
+
+@app.get("/clients/{client_id}", response_model=ClientRead)
+async def get_client(client_id: int, user_id: int, db: Session = Depends(get_db)):
+    db_client = db.query(Client).filter(Client.id == client_id, Client.user_id == user_id).first()
+    if not db_client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return db_client
+
+@app.put("/clients/{client_id}", response_model=ClientRead)
+async def update_client(client_id: int, user_id: int, client_data: ClientUpdate, db: Session = Depends(get_db)):
+    db_client = db.query(Client).filter(Client.id == client_id, Client.user_id == user_id).first()
+    if not db_client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    for key, value in client_data.model_dump(exclude_unset=True).items():
+        setattr(db_client, key, value)
+    
+    db.commit()
+    db.refresh(db_client)
+    return db_client
+
+@app.delete("/clients/{client_id}", status_code=fastapi_status.HTTP_204_NO_CONTENT)
+async def delete_client(client_id: int, user_id: int, db: Session = Depends(get_db)):
+    db_client = db.query(Client).filter(Client.id == client_id, Client.user_id == user_id).first()
+    if not db_client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    db.delete(db_client)
+    db.commit()
+    return None
