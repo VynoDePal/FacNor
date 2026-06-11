@@ -7,3 +7,6 @@ pydantic
 pydantic-settings
 httpx
 httpx2
+email-validator
+python-multipart
+
