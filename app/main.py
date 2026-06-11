@@ -13,6 +13,10 @@ from app.services.calculator import InvoiceCalculator
 from app.services.numbering import InvoiceNumberingService
 from app.services.invoice_service import InvoiceService
 from app.schemas.client import ClientCreate, ClientUpdate, ClientRead
+from app.schemas.auth import UserCreate, UserRead, Token
+from app.services.auth_service import AuthService
+from fastapi import Security
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 from fastapi.staticfiles import StaticFiles
 
@@ -29,18 +33,60 @@ async def on_startup():
 async def root():
     return {"message": "Welcome to FacNor API", "status": "running"}
 
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    token_data = AuthService.decode_access_token(token)
+    if token_data is None:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+    user = db.query(User).filter(User.username == token_data.username).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+@app.post("/auth/register", response_model=UserRead, status_code=fastapi_status.HTTP_201_CREATED)
+async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.username == user_data.username).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    hashed_password = AuthService.get_password_hash(user_data.password)
+    new_user = User(
+        username=user_data.username,
+        email=user_data.email,
+        hashed_password=hashed_password
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+@app.post("/token", response_model=Token)
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == form_data.username).first()
+    if not user or not AuthService.verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=fastapi_status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token = AuthService.create_access_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer"}
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
 
 @app.get("/invoices/", response_model=List[InvoiceRead])
 async def list_invoices(
-    user_id: int,
+    current_user: User = Depends(get_current_user),
     client_id: Optional[int] = None,
     status: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    query = db.query(Invoice).filter(Invoice.user_id == user_id)
+    query = db.query(Invoice).filter(Invoice.user_id == current_user.id)
     
     if client_id:
         query = query.filter(Invoice.client_id == client_id)
@@ -55,15 +101,14 @@ async def list_invoices(
 
 
 @app.post("/invoices/", response_model=InvoiceRead, status_code=fastapi_status.HTTP_201_CREATED)
-async def create_invoice(invoice_data: InvoiceCreate, user_id: int, db: Session = Depends(get_db)):
-    # user_id is passed as query param for now, as auth is not yet implemented
+async def create_invoice(invoice_data: InvoiceCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     
     # 1. Generate sequential number
-    invoice_number = InvoiceNumberingService.generate_next_number(db, user_id)
+    invoice_number = InvoiceNumberingService.generate_next_number(db, current_user.id)
     
     # 2. Create invoice
     db_invoice = Invoice(
-        user_id=user_id,
+        user_id=current_user.id,
         client_id=invoice_data.client_id,
         invoice_number=invoice_number,
         date=invoice_data.date,
@@ -95,34 +140,34 @@ async def create_invoice(invoice_data: InvoiceCreate, user_id: int, db: Session 
     return InvoiceService.format_invoice_response(db_invoice)
 
 @app.get("/invoices/{invoice_id}", response_model=InvoiceRead)
-async def get_invoice(invoice_id: int, user_id: int, db: Session = Depends(get_db)):
-    db_invoice = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.user_id == user_id).first()
+async def get_invoice(invoice_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    db_invoice = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.user_id == current_user.id).first()
     if not db_invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
     
 
 @app.get("/clients/", response_model=List[ClientRead])
-async def list_clients(user_id: int, db: Session = Depends(get_db)):
-    return db.query(Client).filter(Client.user_id == user_id).all()
+async def list_clients(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return db.query(Client).filter(Client.user_id == current_user.id).all()
 
 @app.post("/clients/", response_model=ClientRead, status_code=fastapi_status.HTTP_201_CREATED)
-async def create_client(client_data: ClientCreate, user_id: int, db: Session = Depends(get_db)):
-    db_client = Client(user_id=user_id, **client_data.model_dump())
+async def create_client(client_data: ClientCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    db_client = Client(user_id=current_user.id, **client_data.model_dump())
     db.add(db_client)
     db.commit()
     db.refresh(db_client)
     return db_client
 
 @app.get("/clients/{client_id}", response_model=ClientRead)
-async def get_client(client_id: int, user_id: int, db: Session = Depends(get_db)):
-    db_client = db.query(Client).filter(Client.id == client_id, Client.user_id == user_id).first()
+async def get_client(client_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    db_client = db.query(Client).filter(Client.id == client_id, Client.user_id == current_user.id).first()
     if not db_client:
         raise HTTPException(status_code=404, detail="Client not found")
     return db_client
 
 @app.put("/clients/{client_id}", response_model=ClientRead)
-async def update_client(client_id: int, user_id: int, client_data: ClientUpdate, db: Session = Depends(get_db)):
-    db_client = db.query(Client).filter(Client.id == client_id, Client.user_id == user_id).first()
+async def update_client(client_id: int, client_data: ClientUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    db_client = db.query(Client).filter(Client.id == client_id, Client.user_id == current_user.id).first()
     if not db_client:
         raise HTTPException(status_code=404, detail="Client not found")
     
@@ -134,8 +179,8 @@ async def update_client(client_id: int, user_id: int, client_data: ClientUpdate,
     return db_client
 
 @app.delete("/clients/{client_id}", status_code=fastapi_status.HTTP_204_NO_CONTENT)
-async def delete_client(client_id: int, user_id: int, db: Session = Depends(get_db)):
-    db_client = db.query(Client).filter(Client.id == client_id, Client.user_id == user_id).first()
+async def delete_client(client_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    db_client = db.query(Client).filter(Client.id == client_id, Client.user_id == current_user.id).first()
     if not db_client:
         raise HTTPException(status_code=404, detail="Client not found")
     
