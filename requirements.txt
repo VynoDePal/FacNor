@@ -9,3 +9,5 @@ httpx
 httpx2
 email-validator
 python-multipart
+passlib[bcrypt]
+python-jose[cryptography]
