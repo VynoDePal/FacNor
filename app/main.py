@@ -187,3 +187,20 @@ async def delete_client(client_id: int, current_user: User = Depends(get_current
     db.delete(db_client)
     db.commit()
     return None
+
+from fastapi.responses import Response
+from app.services.pdf_service import PDFService
+
+@app.get("/invoices/{invoice_id}/pdf", response_class=Response)
+async def export_invoice_pdf(invoice_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    db_invoice = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.user_id == current_user.id).first()
+    if not db_invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    pdf_content = PDFService.generate_invoice_pdf(db_invoice)
+    return Response(
+        content=pdf_content, 
+        media_type="application/pdf", 
+        headers={"Content-Disposition": f"attachment; filename=invoice_{db_invoice.invoice_number}.pdf"}
+    )
+
