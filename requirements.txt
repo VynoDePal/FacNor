@@ -13,3 +13,4 @@ passlib[bcrypt]
 python-jose[cryptography]
 pypdf
 
+reportlab
