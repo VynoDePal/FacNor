@@ -64,4 +64,7 @@ class InvoiceResponse(InvoiceBase):
     id: int
     user_id: int
     lines: List[InvoiceLineResponse]
+    total_ht: float
+    total_vat: float
+    total_ttc: float
     model_config = ConfigDict(from_attributes=True)

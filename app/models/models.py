@@ -39,6 +39,25 @@ class Invoice(Base):
     client = relationship("Client", back_populates="invoices")
     lines = relationship("InvoiceLine", back_populates="invoice", cascade="all, delete-orphan")
 
+    @property
+    def total_ht(self) -> float:
+        from app.core.tax_engine import calculate_invoice_totals
+        totals = calculate_invoice_totals(self.lines)
+        return totals["total_ht"]
+
+    @property
+    def total_vat(self) -> float:
+        from app.core.tax_engine import calculate_invoice_totals
+        totals = calculate_invoice_totals(self.lines)
+        return totals["total_vat"]
+
+    @property
+    def total_ttc(self) -> float:
+        from app.core.tax_engine import calculate_invoice_totals
+        totals = calculate_invoice_totals(self.lines)
+        return totals["total_ttc"]
+
+
 class InvoiceLine(Base):
     __tablename__ = "invoice_lines"
     id = Column(Integer, primary_key=True, index=True)
