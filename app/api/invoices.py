@@ -7,6 +7,9 @@ from app.api.deps import get_current_user
 from app.models.models import User
 from app.core.sequencing import get_next_invoice_number
 
+from fastapi.responses import StreamingResponse
+from app.services.pdf_service import generate_invoice_pdf
+
 router = APIRouter(prefix="/invoices", tags=["Invoices"])
 
 @router.get("/", response_model=list[InvoiceResponse])
@@ -107,3 +110,23 @@ def delete_invoice(
     db.delete(db_invoice)
     db.commit()
     return {"detail": "Invoice deleted successfully"}
+
+@router.get("/{invoice_id}/pdf")
+def export_invoice_pdf(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    db_invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not db_invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if db_invoice.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this invoice")
+    
+    pdf_buffer = generate_invoice_pdf(db_invoice, current_user)
+    
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=invoice_{db_invoice.invoice_number}.pdf"}
+    )
