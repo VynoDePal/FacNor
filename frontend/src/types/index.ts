@@ -23,19 +23,21 @@ export interface Client {
 export interface Invoice {
   id: number;
   client_id: number;
-  number: string;
-  date: string;
-  items: InvoiceItem[];
+  invoice_number: string;
+  date_issued: string;
+  date_due?: string;
+  status: string;
+  notes?: string;
+  lines: InvoiceLine[];
   total_ht: number;
-  total_tva: number;
+  total_vat: number;
   total_ttc: number;
 }
 
-export interface InvoiceItem {
+export interface InvoiceLine {
+  id?: number;
   description: string;
   quantity: number;
-  unit_price: number;
-  tva_rate: number;
-  total_ht?: number;
-  total_ttc?: number;
+  unit_price_ht: number;
+  vat_rate: number;
 }
