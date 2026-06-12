@@ -241,3 +241,41 @@ def test_invoice_access_control(client):
     # User 2 tries to delete User 1's invoice
     response = client.delete(f"/invoices/{invoice_id}", headers=auth_header2)
     assert response.status_code == 403
+
+def test_search_invoices(client, auth_header):
+    # Create clients
+    c1 = client.post("/clients/", json={"name": "Client Alpha", "is_company": False}, headers=auth_header).json()
+    c2 = client.post("/clients/", json={"name": "Client Beta", "is_company": False}, headers=auth_header).json()
+
+    # Create invoices
+    i1 = client.post("/invoices/", json={
+        "invoice_number": "INV-001",
+        "client_id": c1["id"],
+        "date_issued": "2023-10-01",
+        "lines": [{"description": "Item 1", "quantity": 1.0, "unit_price_ht": 100.0, "vat_rate": 20.0}]
+    }, headers=auth_header).json()
+    
+    i2 = client.post("/invoices/", json={
+        "invoice_number": "INV-002",
+        "client_id": c2["id"],
+        "date_issued": "2023-10-01",
+        "lines": [{"description": "Item 2", "quantity": 1.0, "unit_price_ht": 100.0, "vat_rate": 20.0}]
+    }, headers=auth_header).json()
+
+    # Search by invoice number
+    resp = client.get("/invoices/?q=INV-001", headers=auth_header)
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+    assert resp.json()[0]["invoice_number"] == "INV-001"
+
+    # Search by client name
+    resp = client.get("/invoices/?q=Alpha", headers=auth_header)
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+    assert resp.json()[0]["invoice_number"] == "INV-001"
+
+    # Search by something that matches both or neither
+    resp = client.get("/invoices/?q=nonexistent", headers=auth_header)
+    assert resp.status_code == 200
+    assert len(resp.json()) == 0
+
