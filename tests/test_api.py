@@ -1,60 +1,6 @@
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from app.core.database import Base, get_db
-from main import app
-import sqlite3
-import os
 
-# Use a file-based database for tests to avoid in-memory connection issues
-TEST_DATABASE_URL = "sqlite:///./test_facnor.db"
-
-engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-def override_get_db():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
-
-# No module-level override here to avoid conflicts with other test files
-
-
-client = TestClient(app)
-
-@pytest.fixture(scope="function", autouse=True)
-def setup_database():
-    # Create schema using schema.sql
-    with open("schema.sql", "r") as f:
-        schema = f.read()
-    
-    with engine.connect() as connection:
-        connection.connection.executescript(schema)
-    
-    app.dependency_overrides[get_db] = override_get_db
-    yield
-    app.dependency_overrides.pop(get_db, None)
-    Base.metadata.drop_all(bind=engine)
-
-def get_auth_header(username="testuser", password="testpassword"):
-    # Register user
-    client.post("/auth/register", json={
-        "username": username,
-        "password": password,
-        "email": f"{username}@example.com"
-    })
-    # Login user
-    response = client.post("/auth/login", data={
-        "username": username,
-        "password": password
-    })
-    token = response.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
-
-def test_auth_register():
+def test_auth_register(client):
     response = client.post("/auth/register", json={
         "username": "reguser",
         "password": "regpassword",
@@ -63,7 +9,7 @@ def test_auth_register():
     assert response.status_code == 200
     assert response.json()["username"] == "reguser"
 
-def test_auth_login():
+def test_auth_login(client):
     client.post("/auth/register", json={
         "username": "loginuser",
         "password": "loginpassword",
@@ -76,8 +22,7 @@ def test_auth_login():
     assert response.status_code == 200
     assert "access_token" in response.json()
 
-def test_create_client():
-    auth_header = get_auth_header()
+def test_create_client(client, auth_header):
     response = client.post("/clients/", json={
         "name": "Client Test",
         "address": "123 Test St",
@@ -92,15 +37,14 @@ def test_create_client():
     assert data["name"] == "Client Test"
     assert data["siren"] == "123456789"
 
-def test_create_invoice():
-    auth_header = get_auth_header()
+def test_create_invoice(client, auth_header):
     # Create client
     client_resp = client.post("/clients/", json={
         "name": "Client Invoice",
         "is_company": False
     }, headers=auth_header)
     client_id = client_resp.json()["id"]
-    
+
     response = client.post("/invoices/", json={
         "invoice_number": "INV-2023-001",
         "client_id": client_id,
@@ -118,35 +62,32 @@ def test_create_invoice():
     assert data["invoice_number"] == "INV-2023-001"
     assert len(data["lines"]) == 2
 
-def test_read_client():
-    auth_header = get_auth_header()
+def test_read_client(client, auth_header):
     # Create client
     client_resp = client.post("/clients/", json={
         "name": "Client Read Test",
         "is_company": False
     }, headers=auth_header)
     client_id = client_resp.json()["id"]
-    
+
     # Read client
     response = client.get(f"/clients/{client_id}", headers=auth_header)
     assert response.status_code == 200
     assert response.json()["name"] == "Client Read Test"
 
-def test_read_client_not_found():
-    auth_header = get_auth_header()
+def test_read_client_not_found(client, auth_header):
     response = client.get("/clients/999", headers=auth_header)
     assert response.status_code == 404
     assert response.json()["detail"] == "Client not found"
 
-def test_update_client():
-    auth_header = get_auth_header()
+def test_update_client(client, auth_header):
     # Create client
     client_resp = client.post("/clients/", json={
         "name": "Client Update Test",
         "is_company": False
     }, headers=auth_header)
     client_id = client_resp.json()["id"]
-    
+
     # Update client
     update_data = {
         "name": "Client Updated Name",
@@ -161,47 +102,43 @@ def test_update_client():
     assert response.status_code == 200
     assert response.json()["name"] == "Client Updated Name"
     assert response.json()["is_company"] is True
-    
+
     # Verify update
     read_resp = client.get(f"/clients/{client_id}", headers=auth_header)
     assert read_resp.json()["name"] == "Client Updated Name"
 
-def test_update_client_not_found():
-    auth_header = get_auth_header()
+def test_update_client_not_found(client, auth_header):
     response = client.put("/clients/999", json={"name": "Non existent"}, headers=auth_header)
     assert response.status_code == 404
     assert response.json()["detail"] == "Client not found"
 
-def test_delete_client():
-    auth_header = get_auth_header()
+def test_delete_client(client, auth_header):
     # Create client
     client_resp = client.post("/clients/", json={
         "name": "Client Delete Test",
         "is_company": False
     }, headers=auth_header)
     client_id = client_resp.json()["id"]
-    
+
     # Delete client
     response = client.delete(f"/clients/{client_id}", headers=auth_header)
     assert response.status_code == 204
-    
+
     # Verify deletion
     read_resp = client.get(f"/clients/{client_id}", headers=auth_header)
     assert read_resp.status_code == 404
 
-def test_delete_client_not_found():
-    auth_header = get_auth_header()
+def test_delete_client_not_found(client, auth_header):
     response = client.delete("/clients/999", headers=auth_header)
     assert response.status_code == 404
     assert response.json()["detail"] == "Client not found"
 
 
-def test_read_invoice():
-    auth_header = get_auth_header()
+def test_read_invoice(client, auth_header):
     # Create client
     client_resp = client.post("/clients/", json={"name": "Client Read Invoice", "is_company": False}, headers=auth_header)
     client_id = client_resp.json()["id"]
-    
+
     # Create invoice
     invoice_resp = client.post("/invoices/", json={
         "client_id": client_id,
@@ -209,18 +146,17 @@ def test_read_invoice():
         "lines": [{"description": "Item 1", "quantity": 1.0, "unit_price_ht": 100.0, "vat_rate": 0.20}]
     }, headers=auth_header)
     invoice_id = invoice_resp.json()["id"]
-    
+
     # Read invoice
     response = client.get(f"/invoices/{invoice_id}", headers=auth_header)
     assert response.status_code == 200
     assert response.json()["client_id"] == client_id
 
-def test_update_invoice():
-    auth_header = get_auth_header()
+def test_update_invoice(client, auth_header):
     # Create client
     client_resp = client.post("/clients/", json={"name": "Client Update Invoice", "is_company": False}, headers=auth_header)
     client_id = client_resp.json()["id"]
-    
+
     # Create invoice
     invoice_resp = client.post("/invoices/", json={
         "client_id": client_id,
@@ -228,7 +164,7 @@ def test_update_invoice():
         "lines": [{"description": "Item 1", "quantity": 1.0, "unit_price_ht": 100.0, "vat_rate": 0.20}]
     }, headers=auth_header)
     invoice_id = invoice_resp.json()["id"]
-    
+
     # Update invoice
     update_data = {
         "client_id": client_id,
@@ -246,12 +182,11 @@ def test_update_invoice():
     assert response.json()["lines"][0]["description"] == "Item 1 Updated"
     assert response.json()["lines"][0]["quantity"] == 2.0
 
-def test_delete_invoice():
-    auth_header = get_auth_header()
+def test_delete_invoice(client, auth_header):
     # Create client
     client_resp = client.post("/clients/", json={"name": "Client Delete Invoice", "is_company": False}, headers=auth_header)
     client_id = client_resp.json()["id"]
-    
+
     # Create invoice
     invoice_resp = client.post("/invoices/", json={
         "client_id": client_id,
@@ -259,22 +194,27 @@ def test_delete_invoice():
         "lines": [{"description": "Item 1", "quantity": 1.0, "unit_price_ht": 100.0, "vat_rate": 0.20}]
     }, headers=auth_header)
     invoice_id = invoice_resp.json()["id"]
-    
+
     # Delete invoice
     response = client.delete(f"/invoices/{invoice_id}", headers=auth_header)
     assert response.status_code == 200
     assert response.json()["detail"] == "Invoice deleted successfully"
-    
+
     # Verify deletion
     read_resp = client.get(f"/invoices/{invoice_id}", headers=auth_header)
     assert read_resp.status_code == 404
 
-def test_invoice_access_control():
+def test_invoice_access_control(client):
     # User 1
-    auth_header1 = get_auth_header("user1", "pass1")
+    client.post("/auth/register", json={"username": "user1", "password": "pass1", "email": "user1@example.com"})
+    response1 = client.post("/auth/login", data={"username": "user1", "password": "pass1"})
+    auth_header1 = {"Authorization": f"Bearer {response1.json()['access_token']}"}
+
     # User 2
-    auth_header2 = get_auth_header("user2", "pass2")
-    
+    client.post("/auth/register", json={"username": "user2", "password": "pass2", "email": "user2@example.com"})
+    response2 = client.post("/auth/login", data={"username": "user2", "password": "pass2"})
+    auth_header2 = {"Authorization": f"Bearer {response2.json()['access_token']}"}
+
     # User 1 creates a client and invoice
     client_resp = client.post("/clients/", json={"name": "User1 Client", "is_company": False}, headers=auth_header1)
     client_id = client_resp.json()["id"]
@@ -284,11 +224,11 @@ def test_invoice_access_control():
         "lines": [{"description": "Item 1", "quantity": 1.0, "unit_price_ht": 100.0, "vat_rate": 0.20}]
     }, headers=auth_header1)
     invoice_id = invoice_resp.json()["id"]
-    
+
     # User 2 tries to read User 1's invoice
     response = client.get(f"/invoices/{invoice_id}", headers=auth_header2)
     assert response.status_code == 403
-    
+
     # User 2 tries to update User 1's invoice
     update_data = {
         "client_id": client_id,
@@ -297,8 +237,7 @@ def test_invoice_access_control():
     }
     response = client.put(f"/invoices/{invoice_id}", json=update_data, headers=auth_header2)
     assert response.status_code == 403
-    
+
     # User 2 tries to delete User 1's invoice
     response = client.delete(f"/invoices/{invoice_id}", headers=auth_header2)
     assert response.status_code == 403
-
