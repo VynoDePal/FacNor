@@ -5,6 +5,7 @@ import type { Invoice, InvoiceLine, Client } from '../types';
 const Invoices = () => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [clientId, setClientId] = useState('');
   const [lines, setLines] = useState<InvoiceLine[]>([{ description: '', quantity: 1, unit_price_ht: 0, vat_rate: 20 }]);
   const [dateIssued, setDateIssued] = useState(new Date().toISOString().split('T')[0]);
@@ -17,7 +18,9 @@ const Invoices = () => {
 
   const fetchInvoices = async () => {
     try {
-      const response = await api.get('/invoices/');
+      const response = await api.get('/invoices/', {
+        params: { q: searchQuery }
+      });
       setInvoices(response.data);
     } catch (err: any) {
       setError('Failed to fetch invoices');
@@ -129,6 +132,28 @@ const Invoices = () => {
           Create Invoice
         </button>
       </form>
+
+      <div style={{ marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <input 
+          type="text" 
+          placeholder="Search by client name or invoice number..." 
+          value={searchQuery} 
+          onChange={e => setSearchQuery(e.target.value)} 
+          style={{ padding: '8px', width: '300px', borderRadius: '4px', border: '1px solid #ccc' }}
+        />
+        <button 
+          onClick={fetchInvoices} 
+          style={{ padding: '8px 16px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+        >
+          Search
+        </button>
+        <button 
+          onClick={() => { setSearchQuery(''); fetchInvoices(); }} 
+          style={{ padding: '8px 16px', backgroundColor: '#f8f9fa', color: '#333', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer' }}
+        >
+          Clear
+        </button>
+      </div>
 
       {error && <p style={{ color: 'red' }}>{error}</p>}
 
