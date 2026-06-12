@@ -15,7 +15,9 @@ export interface Client {
   email: string;
   address: string;
   phone: string;
-  tax_id: string;
+  siren: string;
+  tva_number: string;
+  is_company: boolean;
 }
 
 export interface Invoice {
