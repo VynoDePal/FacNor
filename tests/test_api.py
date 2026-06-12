@@ -20,7 +20,8 @@ def override_get_db():
     finally:
         db.close()
 
-app.dependency_overrides[get_db] = override_get_db
+# No module-level override here to avoid conflicts with other test files
+
 
 client = TestClient(app)
 
@@ -33,7 +34,9 @@ def setup_database():
     with engine.connect() as connection:
         connection.connection.executescript(schema)
     
+    app.dependency_overrides[get_db] = override_get_db
     yield
+    app.dependency_overrides.pop(get_db, None)
     Base.metadata.drop_all(bind=engine)
 
 def get_auth_header(username="testuser", password="testpassword"):
