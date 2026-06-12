@@ -15,9 +15,17 @@ router = APIRouter(prefix="/invoices", tags=["Invoices"])
 @router.get("/", response_model=list[InvoiceResponse])
 def read_invoices(
     db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    q: str = None
 ):
-    return db.query(Invoice).filter(Invoice.user_id == current_user.id).all()
+    query = db.query(Invoice).filter(Invoice.user_id == current_user.id)
+    if q:
+        from app.models.models import Client
+        query = query.join(Client).filter(
+            (Invoice.invoice_number.ilike(f"%{q}%")) | 
+            (Client.name.ilike(f"%{q}%"))
+        )
+    return query.all()
 
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
 def read_invoice(
