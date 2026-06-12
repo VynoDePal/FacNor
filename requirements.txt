@@ -3,3 +3,7 @@ uvicorn
 sqlalchemy
 pytest
 httpx
+passlib[bcrypt]
+python-jose[cryptography]
+email-validator
+python-multipart
