@@ -114,3 +114,81 @@ def test_create_invoice():
     data = response.json()
     assert data["invoice_number"] == "INV-2023-001"
     assert len(data["lines"]) == 2
+
+def test_read_client():
+    auth_header = get_auth_header()
+    # Create client
+    client_resp = client.post("/clients/", json={
+        "name": "Client Read Test",
+        "is_company": False
+    }, headers=auth_header)
+    client_id = client_resp.json()["id"]
+    
+    # Read client
+    response = client.get(f"/clients/{client_id}", headers=auth_header)
+    assert response.status_code == 200
+    assert response.json()["name"] == "Client Read Test"
+
+def test_read_client_not_found():
+    auth_header = get_auth_header()
+    response = client.get("/clients/999", headers=auth_header)
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Client not found"
+
+def test_update_client():
+    auth_header = get_auth_header()
+    # Create client
+    client_resp = client.post("/clients/", json={
+        "name": "Client Update Test",
+        "is_company": False
+    }, headers=auth_header)
+    client_id = client_resp.json()["id"]
+    
+    # Update client
+    update_data = {
+        "name": "Client Updated Name",
+        "address": "New Address",
+        "email": "updated@client.com",
+        "phone": "0987654321",
+        "siren": "987654321",
+        "tva_number": "FR987654321",
+        "is_company": True
+    }
+    response = client.put(f"/clients/{client_id}", json=update_data, headers=auth_header)
+    assert response.status_code == 200
+    assert response.json()["name"] == "Client Updated Name"
+    assert response.json()["is_company"] is True
+    
+    # Verify update
+    read_resp = client.get(f"/clients/{client_id}", headers=auth_header)
+    assert read_resp.json()["name"] == "Client Updated Name"
+
+def test_update_client_not_found():
+    auth_header = get_auth_header()
+    response = client.put("/clients/999", json={"name": "Non existent"}, headers=auth_header)
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Client not found"
+
+def test_delete_client():
+    auth_header = get_auth_header()
+    # Create client
+    client_resp = client.post("/clients/", json={
+        "name": "Client Delete Test",
+        "is_company": False
+    }, headers=auth_header)
+    client_id = client_resp.json()["id"]
+    
+    # Delete client
+    response = client.delete(f"/clients/{client_id}", headers=auth_header)
+    assert response.status_code == 204
+    
+    # Verify deletion
+    read_resp = client.get(f"/clients/{client_id}", headers=auth_header)
+    assert read_resp.status_code == 404
+
+def test_delete_client_not_found():
+    auth_header = get_auth_header()
+    response = client.delete("/clients/999", headers=auth_header)
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Client not found"
+
