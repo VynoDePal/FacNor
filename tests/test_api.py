@@ -192,3 +192,110 @@ def test_delete_client_not_found():
     assert response.status_code == 404
     assert response.json()["detail"] == "Client not found"
 
+
+def test_read_invoice():
+    auth_header = get_auth_header()
+    # Create client
+    client_resp = client.post("/clients/", json={"name": "Client Read Invoice", "is_company": False}, headers=auth_header)
+    client_id = client_resp.json()["id"]
+    
+    # Create invoice
+    invoice_resp = client.post("/invoices/", json={
+        "client_id": client_id,
+        "date_issued": "2023-10-01",
+        "lines": [{"description": "Item 1", "quantity": 1.0, "unit_price_ht": 100.0, "vat_rate": 0.20}]
+    }, headers=auth_header)
+    invoice_id = invoice_resp.json()["id"]
+    
+    # Read invoice
+    response = client.get(f"/invoices/{invoice_id}", headers=auth_header)
+    assert response.status_code == 200
+    assert response.json()["client_id"] == client_id
+
+def test_update_invoice():
+    auth_header = get_auth_header()
+    # Create client
+    client_resp = client.post("/clients/", json={"name": "Client Update Invoice", "is_company": False}, headers=auth_header)
+    client_id = client_resp.json()["id"]
+    
+    # Create invoice
+    invoice_resp = client.post("/invoices/", json={
+        "client_id": client_id,
+        "date_issued": "2023-10-01",
+        "lines": [{"description": "Item 1", "quantity": 1.0, "unit_price_ht": 100.0, "vat_rate": 0.20}]
+    }, headers=auth_header)
+    invoice_id = invoice_resp.json()["id"]
+    
+    # Update invoice
+    update_data = {
+        "client_id": client_id,
+        "date_issued": "2023-10-02",
+        "status": "sent",
+        "notes": "Updated notes",
+        "lines": [{"description": "Item 1 Updated", "quantity": 2.0, "unit_price_ht": 100.0, "vat_rate": 0.20}]
+    }
+    response = client.put(f"/invoices/{invoice_id}", json=update_data, headers=auth_header)
+    assert response.status_code == 200
+    assert response.json()["date_issued"] == "2023-10-02"
+    assert response.json()["status"] == "sent"
+    assert response.json()["notes"] == "Updated notes"
+    assert len(response.json()["lines"]) == 1
+    assert response.json()["lines"][0]["description"] == "Item 1 Updated"
+    assert response.json()["lines"][0]["quantity"] == 2.0
+
+def test_delete_invoice():
+    auth_header = get_auth_header()
+    # Create client
+    client_resp = client.post("/clients/", json={"name": "Client Delete Invoice", "is_company": False}, headers=auth_header)
+    client_id = client_resp.json()["id"]
+    
+    # Create invoice
+    invoice_resp = client.post("/invoices/", json={
+        "client_id": client_id,
+        "date_issued": "2023-10-01",
+        "lines": [{"description": "Item 1", "quantity": 1.0, "unit_price_ht": 100.0, "vat_rate": 0.20}]
+    }, headers=auth_header)
+    invoice_id = invoice_resp.json()["id"]
+    
+    # Delete invoice
+    response = client.delete(f"/invoices/{invoice_id}", headers=auth_header)
+    assert response.status_code == 200
+    assert response.json()["detail"] == "Invoice deleted successfully"
+    
+    # Verify deletion
+    read_resp = client.get(f"/invoices/{invoice_id}", headers=auth_header)
+    assert read_resp.status_code == 404
+
+def test_invoice_access_control():
+    # User 1
+    auth_header1 = get_auth_header("user1", "pass1")
+    # User 2
+    auth_header2 = get_auth_header("user2", "pass2")
+    
+    # User 1 creates a client and invoice
+    client_resp = client.post("/clients/", json={"name": "User1 Client", "is_company": False}, headers=auth_header1)
+    client_id = client_resp.json()["id"]
+    invoice_resp = client.post("/invoices/", json={
+        "client_id": client_id,
+        "date_issued": "2023-10-01",
+        "lines": [{"description": "Item 1", "quantity": 1.0, "unit_price_ht": 100.0, "vat_rate": 0.20}]
+    }, headers=auth_header1)
+    invoice_id = invoice_resp.json()["id"]
+    
+    # User 2 tries to read User 1's invoice
+    response = client.get(f"/invoices/{invoice_id}", headers=auth_header2)
+    assert response.status_code == 403
+    
+    # User 2 tries to update User 1's invoice
+    update_data = {
+        "client_id": client_id,
+        "date_issued": "2023-10-01",
+        "lines": [{"description": "Item 1", "quantity": 1.0, "unit_price_ht": 100.0, "vat_rate": 0.20}]
+    }
+    response = client.put(f"/invoices/{invoice_id}", json=update_data, headers=auth_header2)
+    assert response.status_code == 403
+    
+    # User 2 tries to delete User 1's invoice
+    response = client.delete(f"/invoices/{invoice_id}", headers=auth_header2)
+    assert response.status_code == 403
+
