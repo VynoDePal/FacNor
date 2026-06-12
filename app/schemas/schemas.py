@@ -50,7 +50,7 @@ class InvoiceLineResponse(InvoiceLineBase):
     model_config = ConfigDict(from_attributes=True)
 
 class InvoiceBase(BaseModel):
-    invoice_number: str
+    invoice_number: Optional[str] = None
     client_id: int
     date_issued: date
     date_due: Optional[date] = None
