@@ -36,8 +36,46 @@ def setup_database():
     yield
     Base.metadata.drop_all(bind=engine)
 
+def get_auth_header(username="testuser", password="testpassword"):
+    # Register user
+    client.post("/auth/register", json={
+        "username": username,
+        "password": password,
+        "email": f"{username}@example.com"
+    })
+    # Login user
+    response = client.post("/auth/login", data={
+        "username": username,
+        "password": password
+    })
+    token = response.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+def test_auth_register():
+    response = client.post("/auth/register", json={
+        "username": "reguser",
+        "password": "regpassword",
+        "email": "reg@example.com"
+    })
+    assert response.status_code == 200
+    assert response.json()["username"] == "reguser"
+
+def test_auth_login():
+    client.post("/auth/register", json={
+        "username": "loginuser",
+        "password": "loginpassword",
+        "email": "login@example.com"
+    })
+    response = client.post("/auth/login", data={
+        "username": "loginuser",
+        "password": "loginpassword"
+    })
+    assert response.status_code == 200
+    assert "access_token" in response.json()
+
 def test_create_client():
-    response = client.post("/clients", json={
+    auth_header = get_auth_header()
+    response = client.post("/clients/", json={
         "name": "Client Test",
         "address": "123 Test St",
         "email": "test@client.com",
@@ -45,33 +83,24 @@ def test_create_client():
         "siren": "123456789",
         "tva_number": "FR123456789",
         "is_company": True
-    })
+    }, headers=auth_header)
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "Client Test"
     assert data["siren"] == "123456789"
 
 def test_create_invoice():
-    # Need a client and a user first
+    auth_header = get_auth_header()
     # Create client
-    client_resp = client.post("/clients", json={
+    client_resp = client.post("/clients/", json={
         "name": "Client Invoice",
         "is_company": False
-    })
+    }, headers=auth_header)
     client_id = client_resp.json()["id"]
     
-    # Create user manually in DB for simplicity
-    from app.models.models import User
-    db = next(override_get_db())
-    user = User(username="testuser", password_hash="hash", email="test@user.com")
-    db.add(user)
-    db.commit()
-    user_id = user.id
-    
-    response = client.post("/invoices", json={
+    response = client.post("/invoices/", json={
         "invoice_number": "INV-2023-001",
         "client_id": client_id,
-        "user_id": user_id,
         "date_issued": "2023-10-01",
         "date_due": "2023-10-15",
         "status": "draft",
@@ -80,7 +109,7 @@ def test_create_invoice():
             {"description": "Service A", "quantity": 1.0, "unit_price_ht": 100.0, "vat_rate": 20.0},
             {"description": "Service B", "quantity": 2.0, "unit_price_ht": 50.0, "vat_rate": 20.0}
         ]
-    })
+    }, headers=auth_header)
     assert response.status_code == 200
     data = response.json()
     assert data["invoice_number"] == "INV-2023-001"
