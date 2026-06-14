@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.auth import router as auth_router
 from app.clients import router as clients_router
 from app.database import get_connection, init_database
+from app.invoices import router as invoices_router
 
 
 @asynccontextmanager
@@ -33,6 +34,7 @@ app.add_middleware(
 )
 app.include_router(auth_router)
 app.include_router(clients_router)
+app.include_router(invoices_router)
 
 
 @app.get("/health", tags=["health"])
