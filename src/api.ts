@@ -21,6 +21,29 @@ export type LoginCredentials = {
   password: string;
 };
 
+export type ClientType = 'individual' | 'company';
+
+export type Client = {
+  id: number;
+  user_id: number;
+  name: string;
+  client_type: ClientType;
+  email: string | null;
+  address: string | null;
+  siren: string | null;
+  vat_number: string | null;
+  created_at: string;
+};
+
+export type ClientPayload = {
+  name: string;
+  client_type: ClientType;
+  email?: string | null;
+  address?: string | null;
+  siren?: string | null;
+  vat_number?: string | null;
+};
+
 export function getApiBaseUrl(): string {
   return (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, '');
 }
@@ -39,6 +62,26 @@ async function parseApiError(response: Response): Promise<string> {
   }
 
   return `Erreur API FacNor (${response.status})`;
+}
+
+async function requestApi<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+    ...options,
+    headers: {
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  return response.json() as Promise<T>;
+}
+
+function authorizationHeader(token: string): { Authorization: string } {
+  return { Authorization: `Bearer ${token}` };
 }
 
 export async function fetchHealth(): Promise<HealthResponse> {
@@ -65,4 +108,26 @@ export async function login(credentials: LoginCredentials): Promise<AuthResponse
   }
 
   return response.json() as Promise<AuthResponse>;
+}
+
+export async function fetchClients(token: string): Promise<Client[]> {
+  return requestApi<Client[]>('/clients', {
+    headers: authorizationHeader(token),
+  });
+}
+
+export async function createClient(token: string, payload: ClientPayload): Promise<Client> {
+  return requestApi<Client>('/clients', {
+    method: 'POST',
+    headers: authorizationHeader(token),
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateClient(token: string, clientId: number, payload: ClientPayload): Promise<Client> {
+  return requestApi<Client>(`/clients/${clientId}`, {
+    method: 'PUT',
+    headers: authorizationHeader(token),
+    body: JSON.stringify(payload),
+  });
 }

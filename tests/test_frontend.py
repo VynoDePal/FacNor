@@ -50,3 +50,22 @@ def test_frontend_authentication_ui_calls_login_and_shows_dashboard() -> None:
     assert "type=\"password\"" in app_source
     assert "setView('dashboard')" in app_source
     assert "Tableau de bord" in app_source
+
+
+def test_frontend_client_management_ui_calls_clients_api() -> None:
+    api_source = (ROOT_DIR / "src" / "api.ts").read_text(encoding="utf-8")
+    app_source = (ROOT_DIR / "src" / "App.tsx").read_text(encoding="utf-8")
+
+    assert "export async function fetchClients" in api_source
+    assert "fetch(`${getApiBaseUrl()}${path}`" in api_source
+    assert "'/clients'" in api_source
+    assert "method: 'POST'" in api_source
+    assert "method: 'PUT'" in api_source
+    assert "Authorization: `Bearer ${token}`" in api_source
+    assert "Gestion des clients" in app_source
+    assert "Liste des clients" in app_source
+    assert "Créer le client" in app_source
+    assert "Modifier le client" in app_source
+    assert "fetchClients(accessToken)" in app_source
+    assert "createClient(accessToken, payload)" in app_source
+    assert "updateClient(accessToken, editingClientId, payload)" in app_source
