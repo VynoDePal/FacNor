@@ -10,17 +10,20 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     client_type TEXT NOT NULL CHECK (client_type IN ('individual', 'company')),
     email TEXT,
     address TEXT,
     siren TEXT,
     vat_number TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS invoices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
     client_id INTEGER NOT NULL,
     invoice_number TEXT NOT NULL UNIQUE,
     issue_date TEXT NOT NULL,
@@ -30,10 +33,11 @@ CREATE TABLE IF NOT EXISTS invoices (
     total_vat NUMERIC NOT NULL DEFAULT 0,
     total_including_tax NUMERIC NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT
 );
 
-CREATE TABLE IF NOT EXISTS invoice_lines (
+CREATE TABLE IF NOT EXISTS invoice_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     invoice_id INTEGER NOT NULL,
     description TEXT NOT NULL,
@@ -43,5 +47,12 @@ CREATE TABLE IF NOT EXISTS invoice_lines (
     line_total_excluding_tax NUMERIC NOT NULL DEFAULT 0,
     line_total_vat NUMERIC NOT NULL DEFAULT 0,
     line_total_including_tax NUMERIC NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_clients_user_id ON clients(user_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_user_id ON invoices(user_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_client_id ON invoices(client_id);
+CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id);
+
