@@ -69,3 +69,20 @@ def test_frontend_client_management_ui_calls_clients_api() -> None:
     assert "fetchClients(accessToken)" in app_source
     assert "createClient(accessToken, payload)" in app_source
     assert "updateClient(accessToken, editingClientId, payload)" in app_source
+
+
+def test_frontend_invoice_management_ui_calls_invoices_api() -> None:
+    api_source = (ROOT_DIR / "src" / "api.ts").read_text(encoding="utf-8")
+    app_source = (ROOT_DIR / "src" / "App.tsx").read_text(encoding="utf-8")
+
+    assert "export async function fetchInvoices" in api_source
+    assert "export async function createInvoice" in api_source
+    assert "'/invoices'" in api_source
+    assert "InvoiceItemPayload" in api_source
+    assert "Gestion des factures" in app_source
+    assert "Lignes de produits" in app_source
+    assert "Ajouter une ligne" in app_source
+    assert "Créer la facture" in app_source
+    assert "Liste des factures" in app_source
+    assert "fetchInvoices(accessToken)" in app_source
+    assert "createInvoice(accessToken, toInvoicePayload(invoiceForm))" in app_source
