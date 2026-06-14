@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { AuthResponse, Client, ClientPayload, ClientType, User, createClient, fetchClients, fetchHealth, getApiBaseUrl, login, updateClient } from './api';
+import { AuthResponse, Client, ClientPayload, ClientType, Invoice, InvoiceItemPayload, InvoicePayload, InvoiceStatus, User, createClient, createInvoice, fetchClients, fetchHealth, fetchInvoices, getApiBaseUrl, login, updateClient } from './api';
 import './styles.css';
 
 type ApiState = 'loading' | 'online' | 'offline';
@@ -14,9 +14,22 @@ type ClientFormState = {
   vat_number: string;
 };
 
+type InvoiceFormState = {
+  client_id: string;
+  issue_date: string;
+  due_date: string;
+  status: InvoiceStatus;
+  items: InvoiceItemPayload[];
+};
+
 const TOKEN_STORAGE_KEY = 'facnor_access_token';
 const USER_STORAGE_KEY = 'facnor_user';
 const emptyClientForm: ClientFormState = { name: '', client_type: 'individual', email: '', address: '', siren: '', vat_number: '' };
+const emptyInvoiceItem: InvoiceItemPayload = { description: '', quantity: '1', unit_price_excluding_tax: '0', vat_rate: '20' };
+
+function newInvoiceForm(): InvoiceFormState {
+  return { client_id: '', issue_date: new Date().toISOString().slice(0, 10), due_date: '', status: 'draft', items: [{ ...emptyInvoiceItem }] };
+}
 
 function readStoredUser(): User | null {
   const rawUser = window.localStorage.getItem(USER_STORAGE_KEY);
@@ -56,6 +69,25 @@ function toClientForm(client: Client): ClientFormState {
   };
 }
 
+function toInvoicePayload(form: InvoiceFormState): InvoicePayload {
+  return {
+    client_id: Number(form.client_id),
+    issue_date: form.issue_date,
+    due_date: form.due_date || null,
+    status: form.status,
+    items: form.items.map((item) => ({
+      description: item.description.trim(),
+      quantity: item.quantity,
+      unit_price_excluding_tax: item.unit_price_excluding_tax,
+      vat_rate: item.vat_rate,
+    })),
+  };
+}
+
+function formatMoney(value: string): string {
+  return `${Number(value).toFixed(2)} €`;
+}
+
 export function App() {
   const [apiState, setApiState] = useState<ApiState>('loading');
   const [message, setMessage] = useState('Connexion à l’API FacNor…');
@@ -73,6 +105,12 @@ export function App() {
   const [isSavingClient, setIsSavingClient] = useState(false);
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
   const [clientForm, setClientForm] = useState<ClientFormState>(emptyClientForm);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoicesError, setInvoicesError] = useState('');
+  const [invoicesMessage, setInvoicesMessage] = useState('');
+  const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
+  const [isSavingInvoice, setIsSavingInvoice] = useState(false);
+  const [invoiceForm, setInvoiceForm] = useState<InvoiceFormState>(() => newInvoiceForm());
 
   useEffect(() => {
     fetchHealth()
@@ -94,6 +132,13 @@ export function App() {
       .then(setClients)
       .catch((error: unknown) => setClientsError(error instanceof Error ? error.message : 'Chargement des clients impossible.'))
       .finally(() => setIsLoadingClients(false));
+
+    setIsLoadingInvoices(true);
+    setInvoicesError('');
+    fetchInvoices(accessToken)
+      .then(setInvoices)
+      .catch((error: unknown) => setInvoicesError(error instanceof Error ? error.message : 'Chargement des factures impossible.'))
+      .finally(() => setIsLoadingInvoices(false));
   }, [accessToken, view]);
 
   function storeSession(auth: AuthResponse) {
@@ -124,6 +169,7 @@ export function App() {
     setAccessToken('');
     setCurrentUser(null);
     setClients([]);
+    setInvoices([]);
     setPassword('');
     setView('login');
   }
@@ -156,6 +202,42 @@ export function App() {
     } finally {
       setIsSavingClient(false);
     }
+  }
+
+  function updateInvoiceItem(index: number, field: keyof InvoiceItemPayload, value: string) {
+    setInvoiceForm((currentForm) => ({
+      ...currentForm,
+      items: currentForm.items.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item),
+    }));
+  }
+
+  function addInvoiceItem() {
+    setInvoiceForm((currentForm) => ({ ...currentForm, items: [...currentForm.items, { ...emptyInvoiceItem }] }));
+  }
+
+  function removeInvoiceItem(index: number) {
+    setInvoiceForm((currentForm) => ({ ...currentForm, items: currentForm.items.filter((_, itemIndex) => itemIndex !== index) }));
+  }
+
+  async function handleInvoiceSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSavingInvoice(true);
+    setInvoicesError('');
+    setInvoicesMessage('');
+    try {
+      const savedInvoice = await createInvoice(accessToken, toInvoicePayload(invoiceForm));
+      setInvoices((currentInvoices) => [...currentInvoices, savedInvoice]);
+      setInvoicesMessage(`Facture ${savedInvoice.invoice_number} créée avec succès.`);
+      setInvoiceForm(newInvoiceForm());
+    } catch (error: unknown) {
+      setInvoicesError(error instanceof Error ? error.message : 'Création de la facture impossible.');
+    } finally {
+      setIsSavingInvoice(false);
+    }
+  }
+
+  function clientName(clientId: number): string {
+    return clients.find((client) => client.id === clientId)?.name || `Client #${clientId}`;
   }
 
   return (
@@ -237,6 +319,58 @@ export function App() {
                     {client.siren ? <small>SIREN {client.siren} · TVA {client.vat_number}</small> : null}
                   </div>
                   <button className="secondary-button" type="button" onClick={() => handleEditClient(client)}>Modifier</button>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="invoices-card" aria-labelledby="invoices-title">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Factures</p>
+                <h2 id="invoices-title">Gestion des factures</h2>
+                <p className="muted">Créez une facture avec plusieurs lignes de produits et consultez la liste.</p>
+              </div>
+              <span className="client-count">{invoices.length} facture{invoices.length > 1 ? 's' : ''}</span>
+            </div>
+
+            <form className="invoice-form" onSubmit={handleInvoiceSubmit}>
+              <label>Client<select name="invoice-client" onChange={(event) => setInvoiceForm({ ...invoiceForm, client_id: event.target.value })} required value={invoiceForm.client_id}><option value="">Choisir un client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
+              <label>Date d’émission<input name="invoice-issue-date" onChange={(event) => setInvoiceForm({ ...invoiceForm, issue_date: event.target.value })} required type="date" value={invoiceForm.issue_date} /></label>
+              <label>Date d’échéance<input name="invoice-due-date" onChange={(event) => setInvoiceForm({ ...invoiceForm, due_date: event.target.value })} type="date" value={invoiceForm.due_date} /></label>
+              <label>Statut<select name="invoice-status" onChange={(event) => setInvoiceForm({ ...invoiceForm, status: event.target.value as InvoiceStatus })} value={invoiceForm.status}><option value="draft">Brouillon</option><option value="issued">Émise</option><option value="paid">Payée</option><option value="cancelled">Annulée</option></select></label>
+
+              <div className="invoice-lines">
+                <h3>Lignes de produits</h3>
+                {invoiceForm.items.map((item, index) => (
+                  <div className="invoice-line" key={index}>
+                    <label>Description<input name={`invoice-line-description-${index}`} onChange={(event) => updateInvoiceItem(index, 'description', event.target.value)} placeholder="Prestation de service" required value={item.description} /></label>
+                    <label>Quantité<input min="0.01" name={`invoice-line-quantity-${index}`} onChange={(event) => updateInvoiceItem(index, 'quantity', event.target.value)} required step="0.01" type="number" value={item.quantity} /></label>
+                    <label>Prix HT<input min="0" name={`invoice-line-unit-price-${index}`} onChange={(event) => updateInvoiceItem(index, 'unit_price_excluding_tax', event.target.value)} required step="0.01" type="number" value={item.unit_price_excluding_tax} /></label>
+                    <label>TVA %<input min="0" name={`invoice-line-vat-${index}`} onChange={(event) => updateInvoiceItem(index, 'vat_rate', event.target.value)} required step="0.1" type="number" value={item.vat_rate} /></label>
+                    {invoiceForm.items.length > 1 ? <button className="secondary-button" type="button" onClick={() => removeInvoiceItem(index)}>Retirer</button> : null}
+                  </div>
+                ))}
+                <button className="secondary-button" type="button" onClick={addInvoiceItem}>Ajouter une ligne</button>
+              </div>
+
+              {invoicesError ? <p className="form-error" role="alert">{invoicesError}</p> : null}
+              {invoicesMessage ? <p className="form-success">{invoicesMessage}</p> : null}
+              <button disabled={isSavingInvoice || !accessToken || clients.length === 0} type="submit">{isSavingInvoice ? 'Création…' : 'Créer la facture'}</button>
+            </form>
+
+            <div className="invoices-list" aria-live="polite">
+              <h3>Liste des factures</h3>
+              {isLoadingInvoices ? <p className="muted">Chargement des factures…</p> : null}
+              {!isLoadingInvoices && invoices.length === 0 ? <p className="muted">Aucune facture enregistrée.</p> : null}
+              {invoices.map((invoice) => (
+                <article className="invoice-item" key={invoice.id}>
+                  <div>
+                    <h4>{invoice.invoice_number} · {clientName(invoice.client_id)}</h4>
+                    <p className="muted">{invoice.issue_date}{invoice.due_date ? ` · Échéance ${invoice.due_date}` : ''} · {invoice.status}</p>
+                    <p><strong>Total TTC : {formatMoney(invoice.total_including_tax)}</strong> · HT {formatMoney(invoice.total_excluding_tax)} · TVA {formatMoney(invoice.total_vat)}</p>
+                    <ul>{invoice.items.map((item) => <li key={item.id}>{item.description} — {item.quantity} × {formatMoney(item.unit_price_excluding_tax)} HT, TVA {item.vat_rate}%</li>)}</ul>
+                  </div>
                 </article>
               ))}
             </div>

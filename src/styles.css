@@ -272,3 +272,91 @@ button:disabled {
     display: grid;
   }
 }
+
+.invoices-card {
+  background: #ffffff;
+  border: 1px solid #dfe7f3;
+  border-radius: 24px;
+  box-shadow: 0 20px 45px rgb(23 32 51 / 8%);
+  display: grid;
+  gap: 1.5rem;
+  padding: 2rem;
+}
+
+.invoice-form {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.invoice-form label,
+.invoice-line label {
+  color: #334155;
+  display: grid;
+  font-weight: 700;
+  gap: 0.45rem;
+}
+
+.invoice-form input,
+.invoice-form select {
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  color: #172033;
+  font: inherit;
+  padding: 0.85rem 1rem;
+}
+
+.invoice-form input:focus,
+.invoice-form select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgb(37 99 235 / 14%);
+  outline: none;
+}
+
+.invoice-lines,
+.invoice-form .form-error,
+.invoice-form .form-success,
+.invoice-form > button,
+.invoices-list {
+  grid-column: 1 / -1;
+}
+
+.invoice-lines,
+.invoices-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.invoice-line {
+  align-items: end;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 2fr repeat(3, minmax(100px, 1fr)) auto;
+  padding: 1rem;
+}
+
+.invoice-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  padding: 1rem;
+}
+
+.invoice-item h4,
+.invoice-item p {
+  margin-bottom: 0.4rem;
+}
+
+.invoice-item ul {
+  color: #526179;
+  margin-bottom: 0;
+  padding-left: 1.25rem;
+}
+
+@media (max-width: 720px) {
+  .invoice-form,
+  .invoice-line {
+    grid-template-columns: 1fr;
+  }
+}

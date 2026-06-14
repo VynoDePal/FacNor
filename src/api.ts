@@ -44,6 +44,50 @@ export type ClientPayload = {
   vat_number?: string | null;
 };
 
+export type InvoiceStatus = 'draft' | 'issued' | 'paid' | 'cancelled';
+
+export type InvoiceItem = {
+  id: number;
+  description: string;
+  quantity: string;
+  unit_price_excluding_tax: string;
+  vat_rate: string;
+  line_total_excluding_tax: string;
+  line_total_vat: string;
+  line_total_including_tax: string;
+  created_at: string;
+};
+
+export type InvoiceItemPayload = {
+  description: string;
+  quantity: string;
+  unit_price_excluding_tax: string;
+  vat_rate: string;
+};
+
+export type Invoice = {
+  id: number;
+  user_id: number;
+  client_id: number;
+  invoice_number: string;
+  issue_date: string;
+  due_date: string | null;
+  status: InvoiceStatus;
+  total_excluding_tax: string;
+  total_vat: string;
+  total_including_tax: string;
+  created_at: string;
+  items: InvoiceItem[];
+};
+
+export type InvoicePayload = {
+  client_id: number;
+  issue_date: string;
+  due_date?: string | null;
+  status: InvoiceStatus;
+  items: InvoiceItemPayload[];
+};
+
 export function getApiBaseUrl(): string {
   return (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, '');
 }
@@ -127,6 +171,20 @@ export async function createClient(token: string, payload: ClientPayload): Promi
 export async function updateClient(token: string, clientId: number, payload: ClientPayload): Promise<Client> {
   return requestApi<Client>(`/clients/${clientId}`, {
     method: 'PUT',
+    headers: authorizationHeader(token),
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchInvoices(token: string): Promise<Invoice[]> {
+  return requestApi<Invoice[]>('/invoices', {
+    headers: authorizationHeader(token),
+  });
+}
+
+export async function createInvoice(token: string, payload: InvoicePayload): Promise<Invoice> {
+  return requestApi<Invoice>('/invoices', {
+    method: 'POST',
     headers: authorizationHeader(token),
     body: JSON.stringify(payload),
   });
