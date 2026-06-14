@@ -18,7 +18,9 @@ body {
 }
 
 .hero,
-.status-card {
+.status-card,
+.auth-card,
+.dashboard-card {
   background: #ffffff;
   border: 1px solid #dfe7f3;
   border-radius: 24px;
@@ -51,6 +53,10 @@ h1 {
   max-width: 640px;
 }
 
+.muted {
+  color: #526179;
+}
+
 .status-card {
   align-items: center;
   display: flex;
@@ -79,4 +85,76 @@ h1 {
 
 .status-dot--offline {
   background: #dc2626;
+}
+
+.auth-card,
+.dashboard-card {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.auth-form {
+  display: grid;
+  gap: 1rem;
+  max-width: 440px;
+}
+
+.auth-form label {
+  color: #334155;
+  display: grid;
+  font-weight: 700;
+  gap: 0.45rem;
+}
+
+.auth-form input {
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  color: #172033;
+  font: inherit;
+  padding: 0.85rem 1rem;
+}
+
+.auth-form input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgb(37 99 235 / 14%);
+  outline: none;
+}
+
+button {
+  background: #2563eb;
+  border: 0;
+  border-radius: 12px;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0.9rem 1.1rem;
+}
+
+button:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.secondary-button {
+  background: #e2e8f0;
+  color: #172033;
+  justify-self: start;
+}
+
+.secondary-button:hover:not(:disabled) {
+  background: #cbd5e1;
+}
+
+.form-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  color: #b91c1c;
+  margin: 0;
+  padding: 0.8rem 1rem;
 }
