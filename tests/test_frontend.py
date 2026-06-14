@@ -36,3 +36,17 @@ def test_frontend_entrypoint_mounts_react_application() -> None:
     assert 'src="/src/main.tsx"' in index_html
     assert "ReactDOM.createRoot" in main_source
     assert "<App />" in main_source
+
+
+def test_frontend_authentication_ui_calls_login_and_shows_dashboard() -> None:
+    api_source = (ROOT_DIR / "src" / "api.ts").read_text(encoding="utf-8")
+    app_source = (ROOT_DIR / "src" / "App.tsx").read_text(encoding="utf-8")
+
+    assert "fetch(`${getApiBaseUrl()}/auth/login`" in api_source
+    assert "method: 'POST'" in api_source
+    assert "facnor_access_token" in app_source
+    assert "Connexion utilisateur" in app_source
+    assert "type=\"email\"" in app_source
+    assert "type=\"password\"" in app_source
+    assert "setView('dashboard')" in app_source
+    assert "Tableau de bord" in app_source
