@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { AuthResponse, Client, ClientPayload, ClientType, Invoice, InvoiceItemPayload, InvoicePayload, InvoiceStatus, User, createClient, createInvoice, fetchClients, fetchHealth, fetchInvoices, getApiBaseUrl, login, updateClient } from './api';
+import { AuthResponse, Client, ClientPayload, ClientType, Invoice, InvoiceItemPayload, InvoicePayload, InvoiceStatus, User, createClient, createInvoice, downloadInvoicePdf, fetchClients, fetchHealth, fetchInvoices, getApiBaseUrl, login, updateClient } from './api';
 import './styles.css';
 
 type ApiState = 'loading' | 'online' | 'offline';
@@ -110,6 +110,7 @@ export function App() {
   const [invoicesMessage, setInvoicesMessage] = useState('');
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<number | null>(null);
   const [invoiceForm, setInvoiceForm] = useState<InvoiceFormState>(() => newInvoiceForm());
 
   useEffect(() => {
@@ -233,6 +234,20 @@ export function App() {
       setInvoicesError(error instanceof Error ? error.message : 'Création de la facture impossible.');
     } finally {
       setIsSavingInvoice(false);
+    }
+  }
+
+  async function handleDownloadInvoicePdf(invoice: Invoice) {
+    setDownloadingInvoiceId(invoice.id);
+    setInvoicesError('');
+    setInvoicesMessage('');
+    try {
+      await downloadInvoicePdf(accessToken, invoice);
+      setInvoicesMessage(`Téléchargement du PDF ${invoice.invoice_number} lancé.`);
+    } catch (error: unknown) {
+      setInvoicesError(error instanceof Error ? error.message : 'Téléchargement du PDF impossible.');
+    } finally {
+      setDownloadingInvoiceId(null);
     }
   }
 
@@ -371,6 +386,9 @@ export function App() {
                     <p><strong>Total TTC : {formatMoney(invoice.total_including_tax)}</strong> · HT {formatMoney(invoice.total_excluding_tax)} · TVA {formatMoney(invoice.total_vat)}</p>
                     <ul>{invoice.items.map((item) => <li key={item.id}>{item.description} — {item.quantity} × {formatMoney(item.unit_price_excluding_tax)} HT, TVA {item.vat_rate}%</li>)}</ul>
                   </div>
+                  <button className="secondary-button" disabled={downloadingInvoiceId === invoice.id || !accessToken} type="button" onClick={() => handleDownloadInvoicePdf(invoice)}>
+                    {downloadingInvoiceId === invoice.id ? 'Téléchargement…' : 'Télécharger le PDF'}
+                  </button>
                 </article>
               ))}
             </div>
