@@ -273,17 +273,48 @@ def create_invoice(
 
 
 @router.get("", response_model=list[InvoiceResponse])
-def list_invoices(current_user: UserResponse = Depends(get_current_user)) -> list[InvoiceResponse]:
+def list_invoices(
+    q: str | None = None,
+    status: InvoiceStatus | None = None,
+    client_id: int | None = None,
+    issue_date_from: date | None = None,
+    issue_date_to: date | None = None,
+    current_user: UserResponse = Depends(get_current_user),
+) -> list[InvoiceResponse]:
+    filters = ["invoices.user_id = ?"]
+    parameters: list[object] = [current_user.id]
+
+    search_query = q.strip().lower() if q else ""
+    if search_query:
+        search = f"%{search_query}%"
+        filters.append("(LOWER(invoices.invoice_number) LIKE ? OR LOWER(clients.name) LIKE ?)")
+        parameters.extend([search, search])
+    if status:
+        filters.append("invoices.status = ?")
+        parameters.append(status)
+    if client_id is not None:
+        filters.append("invoices.client_id = ?")
+        parameters.append(client_id)
+    if issue_date_from is not None:
+        filters.append("invoices.issue_date >= ?")
+        parameters.append(issue_date_from.isoformat())
+    if issue_date_to is not None:
+        filters.append("invoices.issue_date <= ?")
+        parameters.append(issue_date_to.isoformat())
+
     with get_connection() as connection:
         rows = connection.execute(
-            """
-            SELECT id, user_id, client_id, invoice_number, issue_date, due_date, status,
-                   total_excluding_tax, total_vat, total_including_tax, created_at
+            f"""
+            SELECT invoices.id, invoices.user_id, invoices.client_id, invoices.invoice_number,
+                   invoices.issue_date, invoices.due_date, invoices.status,
+                   invoices.total_excluding_tax, invoices.total_vat,
+                   invoices.total_including_tax, invoices.created_at
             FROM invoices
-            WHERE user_id = ?
-            ORDER BY id
+            JOIN clients ON clients.id = invoices.client_id
+            WHERE {' AND '.join(filters)}
+            ORDER BY invoices.id
             """,
-            (current_user.id,),
+            tuple(parameters),
         ).fetchall()
         return [_invoice_response(row, _get_invoice_items(connection, row["id"])) for row in rows]
 

@@ -1,3 +1,5 @@
+import time
+
 from fastapi.testclient import TestClient
 
 
@@ -164,4 +166,99 @@ def test_invoice_access_is_limited_to_owner(client: TestClient) -> None:
     assert client.get(f"/invoices/{invoice_id}", headers=second_headers).status_code == 404
     assert client.put(f"/invoices/{invoice_id}", headers=second_headers, json={"status": "paid"}).status_code == 404
     assert client.delete(f"/invoices/{invoice_id}", headers=second_headers).status_code == 404
+
+
+def test_list_invoices_searches_by_client_name_or_invoice_number(client: TestClient) -> None:
+    headers = _auth_headers(client)
+    alpha_client_id = _create_individual_client(client, headers, "Alpha Conseil")
+    beta_client_id = _create_individual_client(client, headers, "Beta Services")
+
+    first = client.post("/invoices", headers=headers, json={"client_id": alpha_client_id, "issue_date": "2024-01-10"})
+    second = client.post("/invoices", headers=headers, json={"client_id": beta_client_id, "issue_date": "2024-01-11"})
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    by_client = client.get("/invoices", headers=headers, params={"q": "alpha"})
+    assert by_client.status_code == 200
+    assert [invoice["invoice_number"] for invoice in by_client.json()] == ["FAC-000001"]
+
+    by_number = client.get("/invoices", headers=headers, params={"q": "000002"})
+    assert by_number.status_code == 200
+    assert [invoice["client_id"] for invoice in by_number.json()] == [beta_client_id]
+
+
+def test_list_invoices_filters_by_status_client_and_issue_date(client: TestClient) -> None:
+    headers = _auth_headers(client)
+    alpha_client_id = _create_individual_client(client, headers, "Alpha Conseil")
+    beta_client_id = _create_individual_client(client, headers, "Beta Services")
+
+    draft_alpha = client.post(
+        "/invoices",
+        headers=headers,
+        json={"client_id": alpha_client_id, "status": "draft", "issue_date": "2024-01-10"},
+    )
+    issued_alpha = client.post(
+        "/invoices",
+        headers=headers,
+        json={"client_id": alpha_client_id, "status": "issued", "issue_date": "2024-02-15"},
+    )
+    issued_beta = client.post(
+        "/invoices",
+        headers=headers,
+        json={"client_id": beta_client_id, "status": "issued", "issue_date": "2024-03-20"},
+    )
+    assert draft_alpha.status_code == 201
+    assert issued_alpha.status_code == 201
+    assert issued_beta.status_code == 201
+
+    filtered = client.get(
+        "/invoices",
+        headers=headers,
+        params={
+            "status": "issued",
+            "client_id": alpha_client_id,
+            "issue_date_from": "2024-02-01",
+            "issue_date_to": "2024-02-29",
+        },
+    )
+
+    assert filtered.status_code == 200
+    assert [invoice["invoice_number"] for invoice in filtered.json()] == ["FAC-000002"]
+
+
+def test_invoice_search_is_limited_to_current_user(client: TestClient) -> None:
+    first_headers = _auth_headers(client, "search-owner-a@example.com")
+    second_headers = _auth_headers(client, "search-owner-b@example.com")
+    first_client_id = _create_individual_client(client, first_headers, "Secret Client")
+    second_client_id = _create_individual_client(client, second_headers, "Visible Client")
+    assert client.post("/invoices", headers=first_headers, json={"client_id": first_client_id}).status_code == 201
+    assert client.post("/invoices", headers=second_headers, json={"client_id": second_client_id}).status_code == 201
+
+    response = client.get("/invoices", headers=second_headers, params={"q": "secret"})
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_invoice_search_responds_under_two_seconds(client: TestClient) -> None:
+    headers = _auth_headers(client)
+    target_client_id = _create_individual_client(client, headers, "Performance Target")
+    other_client_id = _create_individual_client(client, headers, "Performance Other")
+    for index in range(40):
+        client_id = target_client_id if index == 17 else other_client_id
+        response = client.post(
+            "/invoices",
+            headers=headers,
+            json={"client_id": client_id, "issue_date": "2024-04-01"},
+        )
+        assert response.status_code == 201
+
+    started_at = time.perf_counter()
+    response = client.get("/invoices", headers=headers, params={"q": "target"})
+    elapsed = time.perf_counter() - started_at
+
+    assert response.status_code == 200
+    assert elapsed < 2
+    assert [invoice["client_id"] for invoice in response.json()] == [target_client_id]
+
 
