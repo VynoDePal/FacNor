@@ -86,3 +86,18 @@ def test_frontend_invoice_management_ui_calls_invoices_api() -> None:
     assert "Liste des factures" in app_source
     assert "fetchInvoices(accessToken)" in app_source
     assert "createInvoice(accessToken, toInvoicePayload(invoiceForm))" in app_source
+
+
+def test_frontend_invoice_pdf_export_ui_calls_pdf_endpoint() -> None:
+    api_source = (ROOT_DIR / "src" / "api.ts").read_text(encoding="utf-8")
+    app_source = (ROOT_DIR / "src" / "App.tsx").read_text(encoding="utf-8")
+
+    assert "export async function downloadInvoicePdf" in api_source
+    assert "fetch(`${getApiBaseUrl()}/invoices/${invoice.id}/pdf`" in api_source
+    assert "headers: authorizationHeader(token)" in api_source
+    assert "response.blob()" in api_source
+    assert "link.download = `${invoice.invoice_number}.pdf`" in api_source
+    assert "downloadInvoicePdf(accessToken, invoice)" in app_source
+    assert "Télécharger le PDF" in app_source
+    assert "handleDownloadInvoicePdf(invoice)" in app_source
+
