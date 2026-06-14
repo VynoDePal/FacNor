@@ -189,3 +189,23 @@ export async function createInvoice(token: string, payload: InvoicePayload): Pro
     body: JSON.stringify(payload),
   });
 }
+
+export async function downloadInvoicePdf(token: string, invoice: Invoice): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}/invoices/${invoice.id}/pdf`, {
+    headers: authorizationHeader(token),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  const pdfBlob = await response.blob();
+  const downloadUrl = URL.createObjectURL(pdfBlob);
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = `${invoice.invoice_number}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(downloadUrl);
+}
