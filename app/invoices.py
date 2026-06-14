@@ -4,11 +4,12 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from app.auth import UserResponse, get_current_user
 from app.database import get_connection
+from app.pdf_export import ClientPdfData, generate_invoice_pdf
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -176,6 +177,30 @@ def _get_invoice_row(connection, invoice_id: int, user_id: int):
     return row
 
 
+
+def _get_invoice_client_pdf_data(connection, invoice_id: int, user_id: int) -> ClientPdfData:
+    row = connection.execute(
+        """
+        SELECT clients.name, clients.client_type, clients.email, clients.address,
+               clients.siren, clients.vat_number
+        FROM invoices
+        JOIN clients ON clients.id = invoices.client_id
+        WHERE invoices.id = ? AND invoices.user_id = ?
+        """,
+        (invoice_id, user_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Facture introuvable.")
+    return ClientPdfData(
+        name=row["name"],
+        client_type=row["client_type"],
+        email=row["email"],
+        address=row["address"],
+        siren=row["siren"],
+        vat_number=row["vat_number"],
+    )
+
+
 def _get_invoice_items(connection, invoice_id: int) -> list[InvoiceItemResponse]:
     rows = connection.execute(
         """
@@ -317,6 +342,25 @@ def list_invoices(
             tuple(parameters),
         ).fetchall()
         return [_invoice_response(row, _get_invoice_items(connection, row["id"])) for row in rows]
+
+
+@router.get("/{invoice_id}/pdf", response_class=Response)
+def export_invoice_pdf(
+    invoice_id: int,
+    current_user: UserResponse = Depends(get_current_user),
+) -> Response:
+    with get_connection() as connection:
+        invoice = _invoice_with_items(connection, invoice_id, current_user.id)
+        client = _get_invoice_client_pdf_data(connection, invoice_id, current_user.id)
+
+    pdf_content = generate_invoice_pdf(invoice, client, current_user)
+    return Response(
+        content=pdf_content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{invoice.invoice_number}.pdf"',
+        },
+    )
 
 
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
