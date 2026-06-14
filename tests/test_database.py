@@ -5,7 +5,7 @@ from app.database import init_database
 
 
 def test_init_database_creates_required_tables(database_path: Path) -> None:
-    expected_tables = {"users", "clients", "invoices", "invoice_items"}
+    expected_tables = {"users", "sessions", "clients", "invoices", "invoice_items"}
 
     with sqlite3.connect(database_path) as connection:
         rows = connection.execute(
