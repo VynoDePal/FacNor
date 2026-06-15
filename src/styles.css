@@ -99,7 +99,8 @@ h2 {
 .api-card,
 .form-grid,
 .client-form,
-.client-list {
+.client-list,
+.invoice-filter-form {
   display: grid;
   gap: 1rem;
 }
@@ -119,6 +120,16 @@ h2 {
 .client-form {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
+
+.invoice-filter-form {
+  align-items: end;
+  border-radius: 18px;
+  background: #f8fbff;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+}
+
 
 .panel-heading {
   align-items: start;
