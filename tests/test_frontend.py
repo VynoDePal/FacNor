@@ -17,6 +17,18 @@ def test_frontend_calls_configurable_backend_api():
 
     assert "import.meta.env.VITE_API_BASE_URL" in app_source
     assert "fetch(`${apiBaseUrl}/health`" in app_source
+    assert "apiRequest<Client[]>('/clients')" in app_source
+    assert "apiRequest<Client>('/clients'" in app_source
+    assert "Authorization" in app_source
+
+
+def test_frontend_exposes_client_management_interface():
+    app_source = (ROOT_DIR / "src" / "App.tsx").read_text(encoding="utf-8")
+
+    assert "Gestion des clients" in app_source
+    assert "Créer le client" in app_source
+    assert "SIREN" in app_source
+    assert "Actualiser" in app_source
 
 
 def test_frontend_entrypoint_is_wired_to_vite_html():
