@@ -27,10 +27,23 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/schema/tables")
-def schema_tables() -> dict[str, list[str]]:
+REQUIRED_TABLES = {"users", "clients", "invoices", "invoice_lines"}
+
+
+def list_application_tables() -> list[str]:
     with connect() as connection:
         rows = connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
         ).fetchall()
-    return {"tables": [row["name"] for row in rows]}
+    return [row["name"] for row in rows]
+
+
+@app.get("/health/db")
+def database_health() -> dict[str, bool | list[str]]:
+    tables = list_application_tables()
+    return {"status": REQUIRED_TABLES.issubset(tables), "tables": tables}
+
+
+@app.get("/schema/tables")
+def schema_tables() -> dict[str, list[str]]:
+    return {"tables": list_application_tables()}
