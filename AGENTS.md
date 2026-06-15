@@ -10,3 +10,5 @@
 - Frontend is a Vite + React + TypeScript app rooted at `src/` with scripts declared in `package.json`.
 - Frontend backend URL is configured through `VITE_API_BASE_URL` and currently calls `/health`.
 - Python dependencies are declared in the root `requirements.txt`.
+- Authentication routes live in `app/auth.py` under `/auth`; JWTs are HS256 signed with `FACNOR_JWT_SECRET` and passwords use PBKDF2-SHA256.
+
