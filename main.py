@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth import router as auth_router
+from app.clients import router as clients_router
 from app.database import connect, init_db
 from app.invoices import router as invoices_router
 
@@ -28,6 +29,7 @@ def root() -> dict[str, str]:
     return {"status": "ok", "service": "FacNor API"}
 
 app.include_router(auth_router)
+app.include_router(clients_router)
 app.include_router(invoices_router)
 
 
