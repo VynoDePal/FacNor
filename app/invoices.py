@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.auth import UserPublic, get_current_user
 from app.database import connect
 from app.financial import FinancialLineInput, calculate_invoice_totals, money
+from app.pdf_export import build_invoice_pdf
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 DEFAULT_INVOICE_PREFIX = "F"
@@ -353,6 +354,26 @@ def list_invoices(current_user: UserPublic = Depends(get_current_user)) -> list[
             (current_user.id,),
         ).fetchall()
         return [get_invoice_for_user(connection, current_user.id, row["id"]) for row in rows]
+
+
+@router.get("/{invoice_id}/pdf", response_class=Response)
+def export_invoice_pdf(invoice_id: int, current_user: UserPublic = Depends(get_current_user)) -> Response:
+    with connect() as connection:
+        invoice = get_invoice_for_user(connection, current_user.id, invoice_id)
+        issuer = connection.execute("SELECT * FROM users WHERE id = ?", (current_user.id,)).fetchone()
+        client = connection.execute(
+            "SELECT * FROM clients WHERE id = ? AND user_id = ?",
+            (invoice.client_id, current_user.id),
+        ).fetchone()
+        if issuer is None or client is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice data not found")
+        pdf = build_invoice_pdf(invoice, issuer, client)
+    filename = f"facture-{invoice.invoice_number}.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{invoice_id}", response_model=InvoicePublic)

@@ -12,6 +12,8 @@
 - Python dependencies are declared in the root `requirements.txt`.
 - Authentication routes live in `app/auth.py` under `/auth`; JWTs are HS256 signed with `FACNOR_JWT_SECRET` and passwords use PBKDF2-SHA256.
 - Invoice CRUD routes live in `app/invoices.py` under `/invoices`; invoice numbers use `invoice_sequences` from `schema.sql` and are generated as per-user `F-001`, `F-002`, ... inside a `BEGIN IMMEDIATE` transaction. Updates can replace lines and must recalculate totals through `app.financial`.
+- Invoice PDF export is implemented by `app/pdf_export.py` using ReportLab and exposed as `GET /invoices/{invoice_id}/pdf`; tests parse generated PDFs with `pypdf`.
+
 - Client CRUD routes live in `app/clients.py` under `/clients`; deletes use `status_code=204` with `response_class=Response` and return an empty `Response` to satisfy FastAPI's no-body rule.
 
 
