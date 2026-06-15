@@ -1,9 +1,11 @@
 import sqlite3
+from decimal import Decimal
 
 from fastapi.testclient import TestClient
 
 from app.auth import create_access_token
 from app.database import connect
+from app.financial import money
 from main import app
 
 
@@ -150,3 +152,61 @@ def test_authenticated_user_can_create_invoice_with_lines(database_path):
     assert payload["total_tax"] == "40.00"
     assert payload["total_including_tax"] == "240.00"
     assert payload["lines"][0]["line_order"] == 1
+
+
+def test_invoice_creation_calculates_multiline_totals_with_rounding(database_path):
+    user_id, client_id = create_user_and_client(database_path, "rounding@example.com")
+    token = create_access_token(user_id, "rounding@example.com")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/invoices",
+            json={
+                "client_id": client_id,
+                "issue_date": "2024-03-01",
+                "lines": [
+                    {
+                        "description": "Prestation",
+                        "quantity": "2",
+                        "unit_price_excluding_tax": "99.995",
+                        "vat_rate": "20",
+                    },
+                    {
+                        "description": "Produit",
+                        "quantity": "3.5",
+                        "unit_price_excluding_tax": "12.345",
+                        "vat_rate": "5.5",
+                    },
+                    {
+                        "description": "Exonéré",
+                        "quantity": "1",
+                        "unit_price_excluding_tax": "10",
+                        "vat_rate": "0",
+                    },
+                ],
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["total_excluding_tax"] == "253.20"
+    assert payload["total_tax"] == "42.38"
+    assert payload["total_including_tax"] == "295.58"
+    assert payload["lines"][0]["line_total_excluding_tax"] == "199.99"
+    assert payload["lines"][0]["line_total_tax"] == "40.00"
+    assert payload["lines"][1]["line_total_excluding_tax"] == "43.21"
+    assert payload["lines"][1]["line_total_tax"] == "2.38"
+
+    with connect(database_path) as connection:
+        invoice = connection.execute("SELECT * FROM invoices WHERE id = ?", (payload["id"],)).fetchone()
+        lines = connection.execute(
+            "SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY line_order",
+            (payload["id"],),
+        ).fetchall()
+
+    assert money(Decimal(str(invoice["total_excluding_tax"]))) == Decimal("253.20")
+    assert money(Decimal(str(invoice["total_tax"]))) == Decimal("42.38")
+    assert money(Decimal(str(invoice["total_including_tax"]))) == Decimal("295.58")
+    assert money(Decimal(str(lines[2]["line_total_including_tax"]))) == Decimal("10.00")
+
