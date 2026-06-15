@@ -18,3 +18,7 @@
 - Financial calculation logic lives in `app/financial.py`; use `Decimal` with `ROUND_HALF_UP` via `money()`, and keep invoice totals invariant as `total_excluding_tax + total_tax = total_including_tax`.
 
 
+- Frontend invoice management lives in `src/App.tsx`; it reuses the existing auth token flow and `apiRequest()` helper to call `/invoices` and `/clients`.
+- The invoice UI computes live HT/TVA/TTC previews client-side with `useMemo`, while backend totals remain authoritative through `app.invoices` + `app.financial`.
+- Frontend package metadata keeps `react`/`react-dom` in `dependencies` and Vite/TypeScript tooling in `devDependencies`; `npm install && npm run build` should succeed on a fresh checkout.
+
