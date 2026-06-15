@@ -82,6 +82,12 @@ type InvoiceForm = {
   lines: InvoiceLineForm[];
 };
 
+type InvoiceFilters = {
+  client_name: string;
+  date_from: string;
+  date_to: string;
+};
+
 const emptyClientForm: ClientForm = {
   client_type: 'B2B',
   name: '',
@@ -114,6 +120,12 @@ const emptyInvoiceForm = (): InvoiceForm => ({
   legal_notice: defaultLegalNotice,
   lines: [emptyInvoiceLine()],
 });
+
+const emptyInvoiceFilters: InvoiceFilters = {
+  client_name: '',
+  date_from: '',
+  date_to: '',
+};
 
 function optionalText(value: string) {
   const trimmed = value.trim();
@@ -171,6 +183,18 @@ function invoicePayload(form: InvoiceForm) {
   };
 }
 
+function invoiceFilterQuery(filters: InvoiceFilters) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    const trimmed = value.trim();
+    if (trimmed) {
+      params.set(key, trimmed);
+    }
+  });
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
 export function App() {
   const [status, setStatus] = useState<ApiStatus>('idle');
   const [message, setMessage] = useState('Connexion à l’API en attente.');
@@ -182,6 +206,7 @@ export function App() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clientForm, setClientForm] = useState<ClientForm>(emptyClientForm);
   const [invoiceForm, setInvoiceForm] = useState<InvoiceForm>(emptyInvoiceForm);
+  const [invoiceFilters, setInvoiceFilters] = useState<InvoiceFilters>(emptyInvoiceFilters);
   const [clientStatus, setClientStatus] = useState('Connectez-vous pour charger vos clients.');
   const [invoiceStatus, setInvoiceStatus] = useState('Connectez-vous pour gérer vos factures.');
   const isAuthenticated = token !== '';
@@ -221,15 +246,20 @@ export function App() {
     }
   }
 
-  async function loadInvoices() {
+  async function loadInvoices(filters: InvoiceFilters = invoiceFilters) {
     if (!token) {
       return;
     }
     setInvoiceStatus('Chargement des factures…');
     try {
-      const payload = await apiRequest<Invoice[]>('/invoices');
+      const payload = await apiRequest<Invoice[]>(`/invoices${invoiceFilterQuery(filters)}`);
       setInvoices(payload);
-      setInvoiceStatus(payload.length === 0 ? 'Aucune facture enregistrée.' : `${payload.length} facture(s) chargée(s).`);
+      const hasFilters = Object.values(filters).some((value) => value.trim() !== '');
+      if (payload.length === 0) {
+        setInvoiceStatus(hasFilters ? 'Aucune facture ne correspond aux filtres.' : 'Aucune facture enregistrée.');
+      } else {
+        setInvoiceStatus(`${payload.length} facture(s) chargée(s).`);
+      }
     } catch (error) {
       setInvoiceStatus(error instanceof Error ? error.message : 'Impossible de charger les factures.');
     }
@@ -328,6 +358,16 @@ export function App() {
     }
   }
 
+  function submitInvoiceFilters(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    loadInvoices(invoiceFilters);
+  }
+
+  function clearInvoiceFilters() {
+    setInvoiceFilters(emptyInvoiceFilters);
+    loadInvoices(emptyInvoiceFilters);
+  }
+
   async function submitInvoice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setInvoiceStatus('Création de la facture…');
@@ -336,7 +376,7 @@ export function App() {
         method: 'POST',
         body: JSON.stringify(invoicePayload(invoiceForm)),
       });
-      setInvoices((current) => [created, ...current.filter((invoice) => invoice.id !== created.id)]);
+      await loadInvoices(invoiceFilters);
       setInvoiceForm((current) => ({
         ...emptyInvoiceForm(),
         client_id: current.client_id,
@@ -600,11 +640,47 @@ export function App() {
             <p className="eyebrow">Gestion des factures</p>
             <h2 id="invoices-title">Factures</h2>
           </div>
-          <button type="button" onClick={loadInvoices} disabled={!isAuthenticated}>
+          <button type="button" onClick={() => loadInvoices()} disabled={!isAuthenticated}>
             Actualiser les factures
           </button>
         </div>
         <p className="status-line">{invoiceStatus}</p>
+
+        <form className="invoice-filter-form" onSubmit={submitInvoiceFilters}>
+          <label>
+            Rechercher par client
+            <input
+              value={invoiceFilters.client_name}
+              onChange={(event) => setInvoiceFilters({ ...invoiceFilters, client_name: event.target.value })}
+              placeholder="Nom du client"
+              disabled={!isAuthenticated}
+            />
+          </label>
+          <label>
+            Date d’émission dès le
+            <input
+              type="date"
+              value={invoiceFilters.date_from}
+              onChange={(event) => setInvoiceFilters({ ...invoiceFilters, date_from: event.target.value })}
+              disabled={!isAuthenticated}
+            />
+          </label>
+          <label>
+            Date d’émission jusqu’au
+            <input
+              type="date"
+              value={invoiceFilters.date_to}
+              onChange={(event) => setInvoiceFilters({ ...invoiceFilters, date_to: event.target.value })}
+              disabled={!isAuthenticated}
+            />
+          </label>
+          <button type="submit" disabled={!isAuthenticated}>
+            Rechercher
+          </button>
+          <button type="button" onClick={clearInvoiceFilters} disabled={!isAuthenticated}>
+            Réinitialiser
+          </button>
+        </form>
 
         <form className="invoice-form" onSubmit={submitInvoice}>
           <label>

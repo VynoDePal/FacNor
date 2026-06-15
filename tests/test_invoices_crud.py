@@ -173,3 +173,41 @@ def test_invoice_list_returns_invoices_with_lines_ordered_by_recent_issue_date(d
     payload = response.json()
     assert [invoice["invoice_number"] for invoice in payload] == ["F-002", "F-001"]
     assert all(invoice["lines"] for invoice in payload)
+
+
+def test_invoice_list_filters_by_client_name_and_issue_date_range(database_path):
+    user_id = create_user(database_path, "filters@example.com")
+    alpha_client_id = create_client(database_path, user_id, "Alpha Conseil")
+    beta_client_id = create_client(database_path, user_id, "Beta Services")
+
+    with TestClient(app) as client:
+        headers = auth_headers(user_id, "filters@example.com")
+        alpha_january = client.post(
+            "/invoices",
+            json={**INVOICE_PAYLOAD, "client_id": alpha_client_id, "issue_date": "2024-01-15"},
+            headers=headers,
+        )
+        alpha_march = client.post(
+            "/invoices",
+            json={**INVOICE_PAYLOAD, "client_id": alpha_client_id, "issue_date": "2024-03-10"},
+            headers=headers,
+        )
+        beta_february = client.post(
+            "/invoices",
+            json={**INVOICE_PAYLOAD, "client_id": beta_client_id, "issue_date": "2024-02-05"},
+            headers=headers,
+        )
+
+        by_client = client.get("/invoices?client_name=alpha", headers=headers)
+        by_dates = client.get("/invoices?date_from=2024-02-01&date_to=2024-02-29", headers=headers)
+        combined = client.get(
+            "/invoices?client_name=alpha&date_from=2024-03-01&date_to=2024-03-31",
+            headers=headers,
+        )
+
+    assert alpha_january.status_code == 201
+    assert alpha_march.status_code == 201
+    assert beta_february.status_code == 201
+    assert [invoice["id"] for invoice in by_client.json()] == [alpha_march.json()["id"], alpha_january.json()["id"]]
+    assert [invoice["id"] for invoice in by_dates.json()] == [beta_february.json()["id"]]
+    assert [invoice["id"] for invoice in combined.json()] == [alpha_march.json()["id"]]

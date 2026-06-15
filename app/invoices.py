@@ -343,16 +343,36 @@ def update_invoice_for_user(user_id: int, invoice_id: int, payload: InvoiceUpdat
 
 
 @router.get("", response_model=list[InvoicePublic])
-def list_invoices(current_user: UserPublic = Depends(get_current_user)) -> list[InvoicePublic]:
+def list_invoices(
+    client_name: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    current_user: UserPublic = Depends(get_current_user),
+) -> list[InvoicePublic]:
+    query = [
+        """
+        SELECT invoices.id
+        FROM invoices
+        JOIN clients ON clients.id = invoices.client_id
+        WHERE invoices.user_id = ?
+        """
+    ]
+    parameters: list[object] = [current_user.id]
+
+    if client_name is not None and client_name.strip():
+        query.append("AND lower(clients.name) LIKE lower(?)")
+        parameters.append(f"%{client_name.strip()}%")
+    if date_from is not None:
+        query.append("AND invoices.issue_date >= ?")
+        parameters.append(date_from.isoformat())
+    if date_to is not None:
+        query.append("AND invoices.issue_date <= ?")
+        parameters.append(date_to.isoformat())
+
+    query.append("ORDER BY invoices.issue_date DESC, invoices.id DESC")
+
     with connect() as connection:
-        rows = connection.execute(
-            """
-            SELECT id FROM invoices
-            WHERE user_id = ?
-            ORDER BY issue_date DESC, id DESC
-            """,
-            (current_user.id,),
-        ).fetchall()
+        rows = connection.execute("\n".join(query), parameters).fetchall()
         return [get_invoice_for_user(connection, current_user.id, row["id"]) for row in rows]
 
 
