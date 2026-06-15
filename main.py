@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth import router as auth_router
 from app.database import connect, init_db
+from app.invoices import router as invoices_router
 
 
 @asynccontextmanager
@@ -27,6 +28,7 @@ def root() -> dict[str, str]:
     return {"status": "ok", "service": "FacNor API"}
 
 app.include_router(auth_router)
+app.include_router(invoices_router)
 
 
 @app.get("/health")
@@ -34,7 +36,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-REQUIRED_TABLES = {"users", "clients", "invoices", "invoice_lines"}
+REQUIRED_TABLES = {"users", "clients", "invoice_sequences", "invoices", "invoice_lines"}
 
 
 def list_application_tables() -> list[str]:
