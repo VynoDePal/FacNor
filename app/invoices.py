@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.auth import UserPublic, get_current_user
 from app.database import connect
+from app.financial import FinancialLineInput, calculate_invoice_totals, money
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 DEFAULT_INVOICE_PREFIX = "F"
@@ -88,12 +89,8 @@ def _next_invoice_number(connection: sqlite3.Connection, user_id: int, prefix: s
     return _format_invoice_number(prefix, next_number)
 
 
-def _money(value: Decimal) -> Decimal:
-    return value.quantize(Decimal("0.01"))
-
-
 def _decimal_to_db(value: Decimal) -> str:
-    return str(_money(value))
+    return str(money(value))
 
 
 def create_invoice_for_user(user_id: int, payload: InvoiceCreate) -> InvoicePublic:
@@ -107,18 +104,17 @@ def create_invoice_for_user(user_id: int, payload: InvoiceCreate) -> InvoicePubl
             if client is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
 
-            line_totals: list[tuple[InvoiceLineCreate, Decimal, Decimal, Decimal]] = []
-            total_excluding_tax = Decimal("0.00")
-            total_tax = Decimal("0.00")
-            total_including_tax = Decimal("0.00")
-            for line in payload.lines:
-                excluding_tax = line.quantity * line.unit_price_excluding_tax
-                tax = excluding_tax * line.vat_rate / Decimal("100")
-                including_tax = excluding_tax + tax
-                line_totals.append((line, excluding_tax, tax, including_tax))
-                total_excluding_tax += excluding_tax
-                total_tax += tax
-                total_including_tax += including_tax
+            totals = calculate_invoice_totals(
+                [
+                    FinancialLineInput(
+                        description=line.description,
+                        quantity=line.quantity,
+                        unit_price_excluding_tax=line.unit_price_excluding_tax,
+                        vat_rate=line.vat_rate,
+                    )
+                    for line in payload.lines
+                ]
+            )
 
             invoice_number = _next_invoice_number(connection, user_id)
             invoice_id = connection.execute(
@@ -135,14 +131,15 @@ def create_invoice_for_user(user_id: int, payload: InvoiceCreate) -> InvoicePubl
                     payload.issue_date.isoformat(),
                     payload.due_date.isoformat() if payload.due_date else None,
                     payload.currency,
-                    _decimal_to_db(total_excluding_tax),
-                    _decimal_to_db(total_tax),
-                    _decimal_to_db(total_including_tax),
+                    _decimal_to_db(totals.excluding_tax),
+                    _decimal_to_db(totals.tax),
+                    _decimal_to_db(totals.including_tax),
                     payload.legal_notice,
                 ),
             ).lastrowid
 
-            for index, (line, excluding_tax, tax, including_tax) in enumerate(line_totals, start=1):
+            for index, line_total in enumerate(totals.lines, start=1):
+                line = line_total.line
                 connection.execute(
                     """
                     INSERT INTO invoice_lines (
@@ -157,9 +154,9 @@ def create_invoice_for_user(user_id: int, payload: InvoiceCreate) -> InvoicePubl
                         str(line.quantity),
                         str(line.unit_price_excluding_tax),
                         str(line.vat_rate),
-                        _decimal_to_db(excluding_tax),
-                        _decimal_to_db(tax),
-                        _decimal_to_db(including_tax),
+                        _decimal_to_db(line_total.excluding_tax),
+                        _decimal_to_db(line_total.tax),
+                        _decimal_to_db(line_total.including_tax),
                     ),
                 )
             connection.commit()
@@ -191,9 +188,9 @@ def get_invoice_for_user(connection: sqlite3.Connection, user_id: int, invoice_i
         due_date=date.fromisoformat(invoice["due_date"]) if invoice["due_date"] else None,
         status=invoice["status"],
         currency=invoice["currency"],
-        total_excluding_tax=_money(Decimal(str(invoice["total_excluding_tax"]))),
-        total_tax=_money(Decimal(str(invoice["total_tax"]))),
-        total_including_tax=_money(Decimal(str(invoice["total_including_tax"]))),
+        total_excluding_tax=money(Decimal(str(invoice["total_excluding_tax"]))),
+        total_tax=money(Decimal(str(invoice["total_tax"]))),
+        total_including_tax=money(Decimal(str(invoice["total_including_tax"]))),
         legal_notice=invoice["legal_notice"],
         lines=[
             InvoiceLinePublic(
@@ -201,11 +198,11 @@ def get_invoice_for_user(connection: sqlite3.Connection, user_id: int, invoice_i
                 line_order=row["line_order"],
                 description=row["description"],
                 quantity=Decimal(str(row["quantity"])),
-                unit_price_excluding_tax=_money(Decimal(str(row["unit_price_excluding_tax"]))),
+                unit_price_excluding_tax=money(Decimal(str(row["unit_price_excluding_tax"]))),
                 vat_rate=Decimal(str(row["vat_rate"])),
-                line_total_excluding_tax=_money(Decimal(str(row["line_total_excluding_tax"]))),
-                line_total_tax=_money(Decimal(str(row["line_total_tax"]))),
-                line_total_including_tax=_money(Decimal(str(row["line_total_including_tax"]))),
+                line_total_excluding_tax=money(Decimal(str(row["line_total_excluding_tax"]))),
+                line_total_tax=money(Decimal(str(row["line_total_tax"]))),
+                line_total_including_tax=money(Decimal(str(row["line_total_including_tax"]))),
             )
             for row in line_rows
         ],
