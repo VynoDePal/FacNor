@@ -7,6 +7,8 @@
 - SQLite schema is defined in the repository root `schema.sql`.
 - Production and tests must share the same database initialization path via `app.database.init_db()`.
 - Tests are executed from the repository root with `python -m pytest`.
+- Pytest coverage is configured in `pytest.ini` with `--cov=app --cov=main --cov-fail-under=80`; keep `pytest-cov` in root `requirements.txt`.
+
 - Frontend is a Vite + React + TypeScript app rooted at `src/` with scripts declared in `package.json`.
 - Frontend backend URL is configured through `VITE_API_BASE_URL` and currently calls `/health`.
 - Python dependencies are declared in the root `requirements.txt`.
