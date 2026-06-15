@@ -38,6 +38,16 @@ CREATE TABLE IF NOT EXISTS clients (
     )
 );
 
+CREATE TABLE IF NOT EXISTS invoice_sequences (
+    user_id INTEGER NOT NULL,
+    prefix TEXT NOT NULL DEFAULT 'F',
+    last_number INTEGER NOT NULL DEFAULT 0 CHECK (last_number >= 0),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, prefix),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS invoices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -76,6 +86,7 @@ CREATE TABLE IF NOT EXISTS invoice_lines (
 );
 
 CREATE INDEX IF NOT EXISTS idx_clients_user_id ON clients(user_id);
+CREATE INDEX IF NOT EXISTS idx_invoice_sequences_user_id ON invoice_sequences(user_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_user_id ON invoices(user_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_client_id ON invoices(client_id);
 CREATE INDEX IF NOT EXISTS idx_invoice_lines_invoice_id ON invoice_lines(invoice_id);
