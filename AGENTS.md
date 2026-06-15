@@ -17,6 +17,8 @@
 - Client CRUD routes live in `app/clients.py` under `/clients`; deletes use `status_code=204` with `response_class=Response` and return an empty `Response` to satisfy FastAPI's no-body rule.
 
 
+- Invoice listing supports optional query filters `client_name`, `date_from`, and `date_to` on `GET /invoices`; frontend filter controls serialize these through `invoiceFilterQuery()` in `src/App.tsx`.
+
 - Financial calculation logic lives in `app/financial.py`; use `Decimal` with `ROUND_HALF_UP` via `money()`, and keep invoice totals invariant as `total_excluding_tax + total_tax = total_including_tax`.
 
 
