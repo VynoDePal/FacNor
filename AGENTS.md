@@ -9,4 +9,7 @@
 - Invoice CRUD lives in `app.main` and reuses helpers in `app.db`; ownership checks return 404 for cross-user client/invoice access.
 - Invoice totals are stored in integer centimes, and `total_including_tax` must equal the sum of each invoice line `total_including_tax` on create and update.
 - Invoice numbering is sequential per user via `invoice_sequences`, formatted as `FAC-000001`.
+- Frontend client management UI is implemented in `src/App.tsx` and calls the backend through `src/api.ts` using `VITE_API_BASE_URL`.
+- For the Vite app to build reliably on a fresh install, keep `typescript`, `vite`, and `@vitejs/plugin-react` available via `package.json` devDependencies, then run `npm install` before `npm run build`.
+
 
