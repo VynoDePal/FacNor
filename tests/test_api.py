@@ -18,6 +18,26 @@ def _register(client: TestClient, email: str = "api@example.test") -> dict:
     return response.json()
 
 
+
+def test_frontend_origin_can_call_auth_api(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'facnor-cors.db'}")
+    monkeypatch.setenv("CORS_ALLOW_ORIGINS", "http://localhost:5173")
+
+    from app.main import app
+
+    with TestClient(app) as client:
+        response = client.options(
+            "/auth/login",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
 def test_application_starts_initializes_schema_and_creates_invoice(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'facnor-test.db'}")
 
