@@ -336,7 +336,7 @@ button.ghost {
 }
 
 .totals-card div,
-.invoices-list li {
+.invoice-summary {
   align-items: center;
   display: flex;
   justify-content: space-between;
@@ -369,13 +369,18 @@ button.ghost {
 }
 
 .invoices-list li {
-  align-items: flex-start;
   background: #f8fafc;
   border: 1px solid #dfe7f3;
   border-radius: 16px;
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+}
+
+.invoice-summary {
+  align-items: flex-start;
   flex-direction: column;
   gap: 0.35rem;
-  padding: 1rem;
 }
 
 .invoices-list li span {
@@ -384,6 +389,10 @@ button.ghost {
 
 .invoices-list li b {
   color: #2563eb;
+}
+
+.download-pdf {
+  justify-self: stretch;
 }
 
 @media (max-width: 1120px) {
