@@ -144,3 +144,36 @@ export async function createInvoice(token: string, payload: InvoicePayload): Pro
     body: JSON.stringify(payload),
   });
 }
+
+function filenameFromContentDisposition(header: string | null, fallback: string): string {
+  if (!header) return fallback;
+  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) return decodeURIComponent(utf8Match[1].replace(/["']/g, ''));
+  const asciiMatch = header.match(/filename="?([^";]+)"?/i);
+  return asciiMatch?.[1] ?? fallback;
+}
+
+export async function downloadInvoicePdf(token: string, invoice: Pick<Invoice, 'id' | 'invoice_number'>): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/invoices/${invoice.id}/pdf`, {
+    headers: authHeaders(token),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail ?? 'Téléchargement PDF impossible');
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filenameFromContentDisposition(
+    response.headers.get('content-disposition'),
+    `facture-${invoice.invoice_number}.pdf`,
+  );
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  return link.download;
+}
