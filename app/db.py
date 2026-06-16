@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal, ROUND_HALF_UP
 import os
 import sqlite3
 from pathlib import Path
@@ -70,7 +71,7 @@ def create_invoice(
         totals = [_line_totals(line) for line in lines]
         total_excluding_tax = sum(total[0] for total in totals)
         total_tax = sum(total[1] for total in totals)
-        total_including_tax = total_excluding_tax + total_tax
+        total_including_tax = sum(total[2] for total in totals)
 
         cursor = connection.execute(
             """
@@ -94,7 +95,7 @@ def create_invoice(
         )
         invoice_id = int(cursor.lastrowid)
 
-        for index, (line, (line_total_ht, line_total_tax)) in enumerate(zip(lines, totals), start=1):
+        for index, (line, (line_total_ht, line_total_tax, line_total_ttc)) in enumerate(zip(lines, totals), start=1):
             connection.execute(
                 """
                 INSERT INTO invoice_lines (
@@ -112,7 +113,7 @@ def create_invoice(
                     line["vat_rate"],
                     line_total_ht,
                     line_total_tax,
-                    line_total_ht + line_total_tax,
+                    line_total_ttc,
                 ),
             )
 
@@ -121,15 +122,100 @@ def create_invoice(
             (sequence_number + 1, user_id),
         )
 
-    return dict(
-        connection.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
-    )
+    return get_invoice(connection, invoice_id)
 
 
-def _line_totals(line: Mapping[str, object]) -> tuple[int, int]:
-    quantity = float(line["quantity"])
-    unit_price = int(line["unit_price_excluding_tax"])
-    vat_rate = float(line["vat_rate"])
-    total_excluding_tax = round(quantity * unit_price)
-    total_tax = round(total_excluding_tax * vat_rate / 100)
-    return total_excluding_tax, total_tax
+def get_invoice(connection: sqlite3.Connection, invoice_id: int) -> dict | None:
+    invoice = row_to_dict(connection.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone())
+    if invoice is None:
+        return None
+    invoice["lines"] = [
+        dict(row)
+        for row in connection.execute(
+            "SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY line_order",
+            (invoice_id,),
+        ).fetchall()
+    ]
+    return invoice
+
+
+def update_invoice(
+    connection: sqlite3.Connection,
+    invoice_id: int,
+    *,
+    client_id: int | None = None,
+    issue_date: str | None = None,
+    due_date: str | None = None,
+    status: str | None = None,
+    lines: Sequence[Mapping[str, object]] | None = None,
+) -> dict | None:
+    with connection:
+        if client_id is not None or issue_date is not None or due_date is not None or status is not None:
+            updates = []
+            values: list[object] = []
+            for field, value in (
+                ("client_id", client_id),
+                ("issue_date", issue_date),
+                ("due_date", due_date),
+                ("status", status),
+            ):
+                if value is not None:
+                    updates.append(f"{field} = ?")
+                    values.append(value)
+            if updates:
+                connection.execute(
+                    f"UPDATE invoices SET {', '.join(updates)} WHERE id = ?",
+                    (*values, invoice_id),
+                )
+
+        if lines is not None:
+            if not lines:
+                raise ValueError("An invoice requires at least one line")
+            totals = [_line_totals(line) for line in lines]
+            connection.execute("DELETE FROM invoice_lines WHERE invoice_id = ?", (invoice_id,))
+            for index, (line, (line_total_ht, line_total_tax, line_total_ttc)) in enumerate(zip(lines, totals), start=1):
+                connection.execute(
+                    """
+                    INSERT INTO invoice_lines (
+                        invoice_id, line_order, description, quantity, unit_price_excluding_tax,
+                        vat_rate, total_excluding_tax, total_tax, total_including_tax
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        invoice_id,
+                        index,
+                        str(line["description"]),
+                        line["quantity"],
+                        int(line["unit_price_excluding_tax"]),
+                        line["vat_rate"],
+                        line_total_ht,
+                        line_total_tax,
+                        line_total_ttc,
+                    ),
+                )
+            connection.execute(
+                """
+                UPDATE invoices
+                SET total_excluding_tax = ?, total_tax = ?, total_including_tax = ?
+                WHERE id = ?
+                """,
+                (
+                    sum(total[0] for total in totals),
+                    sum(total[1] for total in totals),
+                    sum(total[2] for total in totals),
+                    invoice_id,
+                ),
+            )
+
+    return get_invoice(connection, invoice_id)
+
+
+
+def _line_totals(line: Mapping[str, object]) -> tuple[int, int, int]:
+    quantity = Decimal(str(line["quantity"]))
+    unit_price = Decimal(int(line["unit_price_excluding_tax"]))
+    vat_rate = Decimal(str(line["vat_rate"]))
+    total_excluding_tax = int((quantity * unit_price).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    total_tax = int((Decimal(total_excluding_tax) * vat_rate / Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    return total_excluding_tax, total_tax, total_excluding_tax + total_tax
