@@ -15,5 +15,8 @@
 - Current pytest suite covers schema initialization through `app.db.init_db`, invoice numbering/totals, authentication, ownership checks, and PDF content/download behavior.
 - `requirements.txt` currently lists both pinned and duplicate unpinned dependencies, plus `httpx2` for the Starlette/FastAPI test client deprecation path.
 
+- Frontend automated tests use Vitest via `npm test`; CI runs `npm test` before `npm run build`.
+- Vitest is configured through `vite.config.ts` with `jsdom` and `src/test-setup.ts`; use Testing Library for UI flows in `src/*.test.tsx` and mock `./api` for stable integration-style component tests.
+
 
 
