@@ -90,3 +90,74 @@ def test_create_invoice_assigns_sequential_numbers_and_totals(
 
     lines_count = db.execute("SELECT COUNT(*) AS count FROM invoice_lines").fetchone()["count"]
     assert lines_count == 3
+
+
+def test_invoice_numbers_are_unique_and_strictly_increasing(
+    db: sqlite3.Connection, sample_user_and_client: tuple[int, int]
+) -> None:
+    user_id, client_id = sample_user_and_client
+
+    invoices = [
+        create_invoice(
+            db,
+            user_id=user_id,
+            client_id=client_id,
+            lines=[
+                {
+                    "description": f"Prestation {index}",
+                    "quantity": 1,
+                    "unit_price_excluding_tax": 1000,
+                    "vat_rate": 20,
+                }
+            ],
+        )
+        for index in range(5)
+    ]
+
+    sequence_numbers = [invoice["sequence_number"] for invoice in invoices]
+    invoice_numbers = [invoice["invoice_number"] for invoice in invoices]
+
+    assert sequence_numbers == [1, 2, 3, 4, 5]
+    assert invoice_numbers == ["FAC-000001", "FAC-000002", "FAC-000003", "FAC-000004", "FAC-000005"]
+    assert len(set(invoice_numbers)) == len(invoice_numbers)
+    assert db.execute("SELECT next_number FROM invoice_sequences WHERE user_id = ?", (user_id,)).fetchone()[
+        "next_number"
+    ] == 6
+
+
+def test_invoice_number_uniqueness_is_enforced_by_schema(
+    db: sqlite3.Connection, sample_user_and_client: tuple[int, int]
+) -> None:
+    user_id, client_id = sample_user_and_client
+    first = create_invoice(
+        db,
+        user_id=user_id,
+        client_id=client_id,
+        lines=[
+            {
+                "description": "Prestation initiale",
+                "quantity": 1,
+                "unit_price_excluding_tax": 1000,
+                "vat_rate": 20,
+            }
+        ],
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute(
+            """
+            INSERT INTO invoices (user_id, client_id, sequence_number, invoice_number)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, client_id, first["sequence_number"], "FAC-999999"),
+        )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute(
+            """
+            INSERT INTO invoices (user_id, client_id, sequence_number, invoice_number)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, client_id, 999999, first["invoice_number"]),
+        )
+
