@@ -238,3 +238,164 @@ button.secondary {
     grid-template-columns: 1fr;
   }
 }
+
+select {
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  font: inherit;
+  padding: 0.85rem 1rem;
+  width: 100%;
+}
+
+select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.14);
+  outline: none;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.tabs button {
+  background: #e2e8f0;
+  color: #172033;
+}
+
+.tabs button.active {
+  background: #2563eb;
+  color: #fff;
+}
+
+.invoice-layout {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+
+.invoice-form,
+.invoices-list {
+  align-self: start;
+}
+
+.invoice-form {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.invoice-lines {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.line-header,
+.invoice-line {
+  align-items: center;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(180px, 1.6fr) 88px 120px 96px 120px 92px;
+}
+
+.line-header {
+  color: #5b667a;
+  font-size: 0.85rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.invoice-line {
+  background: #f8fafc;
+  border: 1px solid #dfe7f3;
+  border-radius: 16px;
+  padding: 0.75rem;
+}
+
+.invoice-line strong {
+  text-align: right;
+}
+
+button.ghost {
+  background: transparent;
+  border: 1px solid #cbd5e1;
+  color: #38455b;
+  padding-inline: 0.7rem;
+}
+
+.add-line {
+  justify-self: start;
+}
+
+.totals-card {
+  background: #172033;
+  border-radius: 20px;
+  color: #fff;
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.25rem;
+}
+
+.totals-card div,
+.invoices-list li {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.totals-card span {
+  color: #cbd5e1;
+}
+
+.totals-card strong {
+  font-size: 1.2rem;
+}
+
+.totals-card .grand-total {
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  margin-top: 0.25rem;
+  padding-top: 0.8rem;
+}
+
+.totals-card .grand-total strong {
+  font-size: 1.7rem;
+}
+
+.invoices-list ul {
+  display: grid;
+  gap: 0.8rem;
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+}
+
+.invoices-list li {
+  align-items: flex-start;
+  background: #f8fafc;
+  border: 1px solid #dfe7f3;
+  border-radius: 16px;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem;
+}
+
+.invoices-list li span {
+  color: #5b667a;
+}
+
+.invoices-list li b {
+  color: #2563eb;
+}
+
+@media (max-width: 1120px) {
+  .invoice-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .line-header {
+    display: none;
+  }
+
+  .invoice-line {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
