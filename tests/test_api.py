@@ -130,3 +130,68 @@ def test_protected_routes_require_valid_bearer_token(tmp_path, monkeypatch) -> N
             },
         )
         assert forbidden.status_code == 403
+
+
+def test_authenticated_user_can_crud_only_own_clients(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'facnor-clients.db'}")
+
+    from app.main import app
+
+    with TestClient(app) as client:
+        owner_auth = _register(client, "owner-crud@example.test")
+        other_auth = _register(client, "other-crud@example.test")
+        owner_headers = {"Authorization": f"Bearer {owner_auth['access_token']}"}
+        other_headers = {"Authorization": f"Bearer {other_auth['access_token']}"}
+
+        create_response = client.post(
+            "/clients",
+            headers=owner_headers,
+            json={
+                "name": "Client Initial",
+                "email": "initial@example.test",
+                "address": "10 rue des Tests",
+                "postal_code": "31000",
+                "city": "Toulouse",
+                "siren": "111222333",
+                "vat_number": "FRAB111222333",
+            },
+        )
+        assert create_response.status_code == 201
+        created = create_response.json()
+        assert created["user_id"] == owner_auth["user_id"]
+        client_id = created["id"]
+
+        assert client.get("/clients", headers=owner_headers).json() == [created]
+        assert client.get("/clients", headers=other_headers).json() == []
+
+        detail_response = client.get(f"/clients/{client_id}", headers=owner_headers)
+        assert detail_response.status_code == 200
+        assert detail_response.json()["name"] == "Client Initial"
+        assert client.get(f"/clients/{client_id}", headers=other_headers).status_code == 404
+
+        update_response = client.put(
+            f"/clients/{client_id}",
+            headers=owner_headers,
+            json={"name": "Client Modifié", "city": "Bordeaux", "email": None},
+        )
+        assert update_response.status_code == 200
+        updated = update_response.json()
+        assert updated["name"] == "Client Modifié"
+        assert updated["city"] == "Bordeaux"
+        assert updated["email"] is None
+        assert updated["address"] == "10 rue des Tests"
+
+        forbidden_update = client.put(
+            f"/clients/{client_id}",
+            headers=other_headers,
+            json={"name": "Tentative interdite"},
+        )
+        assert forbidden_update.status_code == 404
+        assert client.delete(f"/clients/{client_id}", headers=other_headers).status_code == 404
+
+        delete_response = client.delete(f"/clients/{client_id}", headers=owner_headers)
+        assert delete_response.status_code == 204
+        assert delete_response.content == b""
+        assert client.get(f"/clients/{client_id}", headers=owner_headers).status_code == 404
+        assert client.get("/clients", headers=owner_headers).json() == []
+
