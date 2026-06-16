@@ -120,6 +120,17 @@ class ClientCreate(BaseModel):
     vat_number: str | None = None
 
 
+class ClientUpdate(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    address: str | None = None
+    postal_code: str | None = None
+    city: str | None = None
+    country: str | None = None
+    siren: str | None = None
+    vat_number: str | None = None
+
+
 class InvoiceLineCreate(BaseModel):
     description: str
     quantity: float = Field(gt=0)
@@ -244,6 +255,18 @@ def create_user(payload: UserCreate, db: Annotated[Connection, Depends(get_db)])
     return user
 
 
+def _get_owned_client(db: Connection, client_id: int, user_id: int) -> dict:
+    client = row_to_dict(
+        db.execute(
+            "SELECT * FROM clients WHERE id = ? AND user_id = ?",
+            (client_id, user_id),
+        ).fetchone()
+    )
+    if client is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Client not found")
+    return client
+
+
 @app.post("/clients", status_code=status.HTTP_201_CREATED)
 def create_client(
     payload: ClientCreate,
@@ -272,7 +295,70 @@ def create_client(
         db.commit()
     except IntegrityError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return row_to_dict(db.execute("SELECT * FROM clients WHERE id = ?", (cursor.lastrowid,)).fetchone())
+    return _get_owned_client(db, int(cursor.lastrowid), user_id)
+
+
+@app.get("/clients")
+def list_clients(
+    db: Annotated[Connection, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+) -> list[dict]:
+    return [
+        dict(row)
+        for row in db.execute(
+            "SELECT * FROM clients WHERE user_id = ? ORDER BY id",
+            (current_user["id"],),
+        ).fetchall()
+    ]
+
+
+@app.get("/clients/{client_id}")
+def get_client(
+    client_id: int,
+    db: Annotated[Connection, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+) -> dict:
+    return _get_owned_client(db, client_id, int(current_user["id"]))
+
+
+@app.put("/clients/{client_id}")
+def update_client(
+    client_id: int,
+    payload: ClientUpdate,
+    db: Annotated[Connection, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+) -> dict:
+    user_id = int(current_user["id"])
+    _get_owned_client(db, client_id, user_id)
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        return _get_owned_client(db, client_id, user_id)
+
+    assignments = ", ".join(f"{field} = ?" for field in updates)
+    try:
+        db.execute(
+            f"UPDATE clients SET {assignments} WHERE id = ? AND user_id = ?",
+            (*updates.values(), client_id, user_id),
+        )
+        db.commit()
+    except IntegrityError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return _get_owned_client(db, client_id, user_id)
+
+
+@app.delete("/clients/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_client(
+    client_id: int,
+    db: Annotated[Connection, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+) -> None:
+    user_id = int(current_user["id"])
+    _get_owned_client(db, client_id, user_id)
+    try:
+        db.execute("DELETE FROM clients WHERE id = ? AND user_id = ?", (client_id, user_id))
+        db.commit()
+    except IntegrityError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @app.post("/invoices", status_code=status.HTTP_201_CREATED)
