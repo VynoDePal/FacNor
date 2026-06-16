@@ -10,13 +10,13 @@ import secrets
 import time
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlite3 import Connection, IntegrityError
 
-from app.db import connect, create_invoice, init_db, row_to_dict
+from app.db import connect, create_invoice, get_invoice, init_db, row_to_dict, update_invoice
 
 TOKEN_TTL_SECONDS = 60 * 60 * 24
 TOKEN_SECRET = os.getenv("AUTH_SECRET", "facnor-development-secret")
@@ -154,6 +154,14 @@ class InvoiceCreate(BaseModel):
     lines: list[InvoiceLineCreate] = Field(min_length=1)
 
 
+class InvoiceUpdate(BaseModel):
+    client_id: int | None = None
+    issue_date: str | None = None
+    due_date: str | None = None
+    status: str | None = None
+    lines: list[InvoiceLineCreate] | None = None
+
+
 def get_db() -> Connection:
     return app.state.db
 
@@ -191,9 +199,41 @@ def _resolve_authenticated_user_id(payload_user_id: int | None, current_user: di
     return user_id
 
 
+def _get_owned_client(db: Connection, client_id: int, user_id: int) -> dict:
+    client = row_to_dict(
+        db.execute(
+            "SELECT * FROM clients WHERE id = ? AND user_id = ?",
+            (client_id, user_id),
+        ).fetchone()
+    )
+    if client is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Client not found")
+    return client
+
+
+def _ensure_owned_client(db: Connection, client_id: int, user_id: int) -> None:
+    _get_owned_client(db, client_id, user_id)
+
+
+def _get_owned_invoice(db: Connection, invoice_id: int, user_id: int) -> dict:
+    invoice = get_invoice(db, invoice_id)
+    if invoice is None or int(invoice["user_id"]) != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    return invoice
+
+
+def _invoice_lines_payload(lines: list[InvoiceLineCreate]) -> list[dict]:
+    return [line.model_dump() for line in lines]
+
+
 @app.get("/")
 def root() -> dict[str, str]:
     return {"name": "FacNor API", "status": "ok"}
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
 
 
 @app.post("/auth/register", status_code=status.HTTP_201_CREATED)
@@ -233,11 +273,6 @@ def me(current_user: Annotated[dict, Depends(get_current_user)]) -> dict:
     return current_user
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
-
-
 @app.post("/users", status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, db: Annotated[Connection, Depends(get_db)]) -> dict:
     try:
@@ -261,18 +296,6 @@ def create_user(payload: UserCreate, db: Annotated[Connection, Depends(get_db)])
     user = row_to_dict(db.execute("SELECT * FROM users WHERE id = ?", (cursor.lastrowid,)).fetchone())
     user.pop("password_hash", None)
     return user
-
-
-def _get_owned_client(db: Connection, client_id: int, user_id: int) -> dict:
-    client = row_to_dict(
-        db.execute(
-            "SELECT * FROM clients WHERE id = ? AND user_id = ?",
-            (client_id, user_id),
-        ).fetchone()
-    )
-    if client is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Client not found")
-    return client
 
 
 @app.post("/clients", status_code=status.HTTP_201_CREATED)
@@ -359,7 +382,7 @@ def delete_client(
     client_id: int,
     db: Annotated[Connection, Depends(get_db)],
     current_user: Annotated[dict, Depends(get_current_user)],
-) -> None:
+) -> Response:
     user_id = int(current_user["id"])
     _get_owned_client(db, client_id, user_id)
     try:
@@ -367,6 +390,7 @@ def delete_client(
         db.commit()
     except IntegrityError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.post("/invoices", status_code=status.HTTP_201_CREATED)
@@ -376,12 +400,7 @@ def post_invoice(
     current_user: Annotated[dict, Depends(get_current_user)],
 ) -> dict:
     user_id = _resolve_authenticated_user_id(payload.user_id, current_user)
-    client_owner = db.execute(
-        "SELECT user_id FROM clients WHERE id = ?",
-        (payload.client_id,),
-    ).fetchone()
-    if client_owner is None or int(client_owner["user_id"]) != user_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Client not found")
+    _ensure_owned_client(db, payload.client_id, user_id)
     try:
         return create_invoice(
             db,
@@ -389,7 +408,72 @@ def post_invoice(
             client_id=payload.client_id,
             issue_date=payload.issue_date,
             due_date=payload.due_date,
-            lines=[line.model_dump() if hasattr(line, "model_dump") else line.dict() for line in payload.lines],
+            lines=_invoice_lines_payload(payload.lines),
         )
     except (IntegrityError, ValueError) as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@app.get("/invoices")
+def list_invoices(
+    db: Annotated[Connection, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+) -> list[dict]:
+    invoice_ids = [
+        row["id"]
+        for row in db.execute(
+            "SELECT id FROM invoices WHERE user_id = ? ORDER BY id",
+            (current_user["id"],),
+        ).fetchall()
+    ]
+    return [get_invoice(db, int(invoice_id)) for invoice_id in invoice_ids]
+
+
+@app.get("/invoices/{invoice_id}")
+def read_invoice(
+    invoice_id: int,
+    db: Annotated[Connection, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+) -> dict:
+    return _get_owned_invoice(db, invoice_id, int(current_user["id"]))
+
+
+@app.put("/invoices/{invoice_id}")
+def put_invoice(
+    invoice_id: int,
+    payload: InvoiceUpdate,
+    db: Annotated[Connection, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+) -> dict:
+    user_id = int(current_user["id"])
+    _get_owned_invoice(db, invoice_id, user_id)
+    if payload.client_id is not None:
+        _ensure_owned_client(db, payload.client_id, user_id)
+    try:
+        updated = update_invoice(
+            db,
+            invoice_id,
+            client_id=payload.client_id,
+            issue_date=payload.issue_date,
+            due_date=payload.due_date,
+            status=payload.status,
+            lines=None if payload.lines is None else _invoice_lines_payload(payload.lines),
+        )
+    except (IntegrityError, ValueError) as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    return updated
+
+
+@app.delete("/invoices/{invoice_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_invoice(
+    invoice_id: int,
+    db: Annotated[Connection, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+) -> Response:
+    user_id = int(current_user["id"])
+    _get_owned_invoice(db, invoice_id, user_id)
+    db.execute("DELETE FROM invoices WHERE id = ? AND user_id = ?", (invoice_id, user_id))
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
