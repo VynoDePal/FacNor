@@ -11,5 +11,9 @@
 - Invoice numbering is sequential per user via `invoice_sequences`, formatted as `FAC-000001`.
 - Frontend client management UI is implemented in `src/App.tsx` and calls the backend through `src/api.ts` using `VITE_API_BASE_URL`.
 - For the Vite app to build reliably on a fresh install, keep `typescript`, `vite`, and `@vitejs/plugin-react` available via `package.json` devDependencies, then run `npm install` before `npm run build`.
+- PDF invoice export is implemented in `app.pdf` without external PDF dependencies; API route is `GET /invoices/{invoice_id}/pdf` and reuses invoice ownership checks.
+- Current pytest suite covers schema initialization through `app.db.init_db`, invoice numbering/totals, authentication, ownership checks, and PDF content/download behavior.
+- `requirements.txt` currently lists both pinned and duplicate unpinned dependencies, plus `httpx2` for the Starlette/FastAPI test client deprecation path.
+
 
 

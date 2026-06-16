@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import base64
+from io import BytesIO
 import hashlib
 import hmac
 import json
@@ -12,11 +13,13 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlite3 import Connection, IntegrityError
 
 from app.db import connect, create_invoice, get_invoice, init_db, row_to_dict, update_invoice
+from app.pdf import generate_invoice_pdf
 
 TOKEN_TTL_SECONDS = 60 * 60 * 24
 TOKEN_SECRET = os.getenv("AUTH_SECRET", "facnor-development-secret")
@@ -427,6 +430,24 @@ def list_invoices(
         ).fetchall()
     ]
     return [get_invoice(db, int(invoice_id)) for invoice_id in invoice_ids]
+
+
+@app.get("/invoices/{invoice_id}/pdf")
+def export_invoice_pdf(
+    invoice_id: int,
+    db: Annotated[Connection, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+) -> StreamingResponse:
+    invoice = _get_owned_invoice(db, invoice_id, int(current_user["id"]))
+    pdf = generate_invoice_pdf(db, invoice_id)
+    if pdf is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    filename = f"facture-{invoice['invoice_number']}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/invoices/{invoice_id}")
