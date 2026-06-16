@@ -55,17 +55,15 @@ def create_invoice(
 
     with connection:
         sequence_row = connection.execute(
-            "SELECT next_number FROM invoice_sequences WHERE user_id = ?",
+            """
+            INSERT INTO invoice_sequences (user_id, next_number)
+            VALUES (?, 2)
+            ON CONFLICT(user_id) DO UPDATE SET next_number = next_number + 1
+            RETURNING next_number - 1 AS sequence_number
+            """,
             (user_id,),
         ).fetchone()
-        if sequence_row is None:
-            connection.execute(
-                "INSERT INTO invoice_sequences (user_id, next_number) VALUES (?, 1)",
-                (user_id,),
-            )
-            sequence_number = 1
-        else:
-            sequence_number = int(sequence_row["next_number"])
+        sequence_number = int(sequence_row["sequence_number"])
 
         invoice_number = f"FAC-{sequence_number:06d}"
         totals = [_line_totals(line) for line in lines]
@@ -116,11 +114,6 @@ def create_invoice(
                     line_total_ttc,
                 ),
             )
-
-        connection.execute(
-            "UPDATE invoice_sequences SET next_number = ? WHERE user_id = ?",
-            (sequence_number + 1, user_id),
-        )
 
     return get_invoice(connection, invoice_id)
 
