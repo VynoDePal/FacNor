@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     client_id INTEGER NOT NULL,
-    invoice_number TEXT NOT NULL UNIQUE,
+    invoice_number TEXT NOT NULL,
     issue_date TEXT NOT NULL,
     due_date TEXT,
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'issued', 'paid', 'cancelled')),
@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     total_tax REAL NOT NULL DEFAULT 0 CHECK (total_tax >= 0),
     total_including_tax REAL NOT NULL DEFAULT 0 CHECK (total_including_tax >= 0),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, invoice_number),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT,
     FOREIGN KEY (client_id, user_id) REFERENCES clients(id, user_id) ON DELETE RESTRICT

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
+import hmac
+import json
+import os
 import secrets
 import sqlite3
 from contextlib import asynccontextmanager
-from datetime import date
-from typing import Annotated
+from datetime import UTC, date, datetime, timedelta
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -35,7 +40,6 @@ class UserLogin(BaseModel):
 
 
 class ClientCreate(BaseModel):
-    user_id: int | None = None
     name: str = Field(min_length=1)
     email: EmailStr | None = None
     address: str = Field(min_length=1)
@@ -50,7 +54,6 @@ class InvoiceLineCreate(BaseModel):
 
 
 class InvoiceCreate(BaseModel):
-    user_id: int | None = None
     client_id: int
     invoice_number: str = Field(min_length=1)
     issue_date: date
@@ -59,6 +62,62 @@ class InvoiceCreate(BaseModel):
 
 
 security = HTTPBearer(auto_error=False)
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_MINUTES = 60
+
+
+def get_jwt_secret() -> str:
+    return os.getenv("FACNOR_JWT_SECRET", "facnor-development-secret-change-me")
+
+
+def base64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def base64url_decode(data: str) -> bytes:
+    padding = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(data + padding)
+
+
+def create_access_token(user_id: int, email: str) -> str:
+    now = datetime.now(UTC)
+    header = {"alg": JWT_ALGORITHM, "typ": "JWT"}
+    payload = {
+        "sub": str(user_id),
+        "email": email,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=JWT_EXPIRATION_MINUTES)).timestamp()),
+    }
+    signing_input = ".".join(
+        [
+            base64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8")),
+            base64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")),
+        ]
+    )
+    signature = hmac.new(get_jwt_secret().encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256).digest()
+    return f"{signing_input}.{base64url_encode(signature)}"
+
+
+def decode_access_token(token: str) -> dict[str, Any]:
+    try:
+        encoded_header, encoded_payload, encoded_signature = token.split(".")
+        signing_input = f"{encoded_header}.{encoded_payload}"
+        expected_signature = hmac.new(
+            get_jwt_secret().encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256
+        ).digest()
+        signature = base64url_decode(encoded_signature)
+        header = json.loads(base64url_decode(encoded_header))
+        payload = json.loads(base64url_decode(encoded_payload))
+    except (binascii.Error, ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token")
+
+    if header.get("alg") != JWT_ALGORITHM or not hmac.compare_digest(signature, expected_signature):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token")
+    if not isinstance(payload.get("sub"), str) or not isinstance(payload.get("exp"), int):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token")
+    if payload["exp"] < int(datetime.now(UTC).timestamp()):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication token expired")
+    return payload
 
 
 def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
@@ -79,9 +138,10 @@ def get_current_user(
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
 
+    payload = decode_access_token(credentials.credentials)
     user = connection.execute(
-        "SELECT id, email, full_name FROM users WHERE auth_token = ?",
-        (credentials.credentials,),
+        "SELECT id, email, full_name FROM users WHERE id = ?",
+        (payload["sub"],),
     ).fetchone()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token")
@@ -96,32 +156,35 @@ def health() -> dict[str, str]:
 @app.post("/users", status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, connection: sqlite3.Connection = Depends(get_connection)) -> dict[str, object]:
     salt, password_hash = hash_password(payload.password)
-    auth_token = secrets.token_urlsafe(32)
     try:
         cursor = connection.execute(
             "INSERT INTO users (email, full_name, password_salt, password_hash, auth_token) VALUES (?, ?, ?, ?, ?)",
-            (payload.email, payload.full_name, salt, password_hash, auth_token),
+            (payload.email, payload.full_name, salt, password_hash, secrets.token_urlsafe(32)),
         )
         connection.commit()
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=409, detail="User email already exists") from exc
 
-    return {"id": cursor.lastrowid, "email": payload.email, "full_name": payload.full_name, "access_token": auth_token}
+    user_id = int(cursor.lastrowid)
+    return {
+        "id": user_id,
+        "email": payload.email,
+        "full_name": payload.full_name,
+        "access_token": create_access_token(user_id, payload.email),
+        "token_type": "bearer",
+    }
 
 
 @app.post("/auth/login")
 def login(payload: UserLogin, connection: sqlite3.Connection = Depends(get_connection)) -> dict[str, str]:
     user = connection.execute(
-        "SELECT id, password_salt, password_hash FROM users WHERE email = ?",
+        "SELECT id, email, password_salt, password_hash FROM users WHERE email = ?",
         (payload.email,),
     ).fetchone()
     if user is None or not verify_password(payload.password, user["password_salt"], user["password_hash"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    auth_token = secrets.token_urlsafe(32)
-    connection.execute("UPDATE users SET auth_token = ? WHERE id = ?", (auth_token, user["id"]))
-    connection.commit()
-    return {"access_token": auth_token, "token_type": "bearer"}
+    return {"access_token": create_access_token(user["id"], user["email"]), "token_type": "bearer"}
 
 
 @app.post("/clients", status_code=status.HTTP_201_CREATED)
@@ -166,6 +229,13 @@ def create_invoice(
     ).fetchone()
     if client is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+
+    existing_invoice = connection.execute(
+        "SELECT id FROM invoices WHERE user_id = ? AND invoice_number = ?",
+        (user_id, payload.invoice_number),
+    ).fetchone()
+    if existing_invoice is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Invoice number already exists")
 
     total_excluding_tax = sum(line.quantity * line.unit_price for line in payload.lines)
     total_tax = sum(line.quantity * line.unit_price * line.tax_rate / 100 for line in payload.lines)
