@@ -13,9 +13,11 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
+    client_type TEXT NOT NULL DEFAULT 'b2c' CHECK (client_type IN ('b2b', 'b2c')),
     name TEXT NOT NULL,
     email TEXT,
     address TEXT NOT NULL,
+    siren TEXT,
     vat_number TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (id, user_id),
