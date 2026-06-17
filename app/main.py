@@ -14,7 +14,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError, field_validator, model_validator
 
 from app.db import get_connection, initialize_database
 
@@ -39,11 +39,91 @@ class UserLogin(BaseModel):
     password: str = Field(min_length=1)
 
 
-class ClientCreate(BaseModel):
+class ClientBase(BaseModel):
+    client_type: str = Field(default="b2c", pattern="^(b2b|b2c)$")
     name: str = Field(min_length=1)
     email: EmailStr | None = None
     address: str = Field(min_length=1)
+    siren: str | None = None
     vat_number: str | None = None
+
+    @field_validator("siren", "vat_number")
+    @classmethod
+    def normalize_business_identifiers(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = "".join(char for char in value.upper() if char.isalnum())
+        return normalized or None
+
+    @model_validator(mode="after")
+    def validate_business_identifiers(self) -> "ClientBase":
+        if self.client_type == "b2b":
+            if self.siren is None or not is_valid_siren(self.siren):
+                raise ValueError("A B2B client must provide a valid SIREN")
+            if self.vat_number is None or not is_valid_french_vat_number(self.vat_number):
+                raise ValueError("A B2B client must provide a valid French VAT number")
+            if self.vat_number[4:] != self.siren:
+                raise ValueError("VAT number must match the SIREN")
+        return self
+
+
+def is_valid_siren(siren: str) -> bool:
+    if len(siren) != 9 or not siren.isdigit():
+        return False
+    total = 0
+    parity = len(siren) % 2
+    for index, char in enumerate(siren):
+        digit = int(char)
+        if index % 2 == parity:
+            digit *= 2
+            if digit > 9:
+                digit -= 9
+        total += digit
+    return total % 10 == 0
+
+
+def is_valid_french_vat_number(vat_number: str) -> bool:
+    if len(vat_number) != 13 or not vat_number.startswith("FR") or not vat_number[2:].isdigit():
+        return False
+    siren = vat_number[4:]
+    if not is_valid_siren(siren):
+        return False
+    expected_key = (12 + 3 * (int(siren) % 97)) % 97
+    return vat_number[2:4] == f"{expected_key:02d}"
+
+
+def serialize_client(row: sqlite3.Row) -> dict[str, object]:
+    return {
+        "id": row["id"],
+        "user_id": row["user_id"],
+        "client_type": row["client_type"],
+        "name": row["name"],
+        "email": row["email"],
+        "address": row["address"],
+        "siren": row["siren"],
+        "vat_number": row["vat_number"],
+        "created_at": row["created_at"],
+    }
+
+
+class ClientCreate(ClientBase):
+    pass
+
+
+class ClientUpdate(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
+    client_type: str | None = Field(default=None, pattern="^(b2b|b2c)$")
+    name: str | None = Field(default=None, min_length=1)
+    email: EmailStr | None = None
+    address: str | None = Field(default=None, min_length=1)
+    siren: str | None = None
+    vat_number: str | None = None
+
+    @field_validator("siren", "vat_number")
+    @classmethod
+    def normalize_business_identifiers(cls, value: str | None) -> str | None:
+        return ClientBase.normalize_business_identifiers(value)
 
 
 class InvoiceLineCreate(BaseModel):
@@ -197,23 +277,126 @@ def create_client(
     try:
         cursor = connection.execute(
             """
-            INSERT INTO clients (user_id, name, email, address, vat_number)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO clients (user_id, client_type, name, email, address, siren, vat_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, payload.name, payload.email, payload.address, payload.vat_number),
+            (user_id, payload.client_type, payload.name, payload.email, payload.address, payload.siren, payload.vat_number),
         )
         connection.commit()
     except sqlite3.IntegrityError as exc:
-        raise HTTPException(status_code=400, detail="Invalid client owner") from exc
+        raise HTTPException(status_code=400, detail="Invalid client data") from exc
 
-    return {
-        "id": cursor.lastrowid,
-        "user_id": user_id,
-        "name": payload.name,
-        "email": payload.email,
-        "address": payload.address,
-        "vat_number": payload.vat_number,
-    }
+    row = connection.execute(
+        "SELECT id, user_id, client_type, name, email, address, siren, vat_number, created_at FROM clients WHERE id = ?",
+        (cursor.lastrowid,),
+    ).fetchone()
+    return serialize_client(row)
+
+
+@app.get("/clients")
+def list_clients(
+    current_user: Annotated[sqlite3.Row, Depends(get_current_user)],
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> list[dict[str, object]]:
+    rows = connection.execute(
+        """
+        SELECT id, user_id, client_type, name, email, address, siren, vat_number, created_at
+        FROM clients
+        WHERE user_id = ?
+        ORDER BY id
+        """,
+        (current_user["id"],),
+    ).fetchall()
+    return [serialize_client(row) for row in rows]
+
+
+@app.get("/clients/{client_id}")
+def get_client(
+    client_id: int,
+    current_user: Annotated[sqlite3.Row, Depends(get_current_user)],
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> dict[str, object]:
+    row = connection.execute(
+        """
+        SELECT id, user_id, client_type, name, email, address, siren, vat_number, created_at
+        FROM clients
+        WHERE id = ? AND user_id = ?
+        """,
+        (client_id, current_user["id"]),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+    return serialize_client(row)
+
+
+@app.put("/clients/{client_id}")
+def update_client(
+    client_id: int,
+    payload: ClientUpdate,
+    current_user: Annotated[sqlite3.Row, Depends(get_current_user)],
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> dict[str, object]:
+    existing = connection.execute(
+        """
+        SELECT id, user_id, client_type, name, email, address, siren, vat_number, created_at
+        FROM clients
+        WHERE id = ? AND user_id = ?
+        """,
+        (client_id, current_user["id"]),
+    ).fetchone()
+    if existing is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+
+    try:
+        merged = ClientCreate(
+            client_type=payload.client_type if payload.client_type is not None else existing["client_type"],
+            name=payload.name if payload.name is not None else existing["name"],
+            email=payload.email if payload.email is not None else existing["email"],
+            address=payload.address if payload.address is not None else existing["address"],
+            siren=payload.siren if payload.siren is not None else existing["siren"],
+            vat_number=payload.vat_number if payload.vat_number is not None else existing["vat_number"],
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors(include_context=False)) from exc
+    connection.execute(
+        """
+        UPDATE clients
+        SET client_type = ?, name = ?, email = ?, address = ?, siren = ?, vat_number = ?
+        WHERE id = ? AND user_id = ?
+        """,
+        (
+            merged.client_type,
+            merged.name,
+            merged.email,
+            merged.address,
+            merged.siren,
+            merged.vat_number,
+            client_id,
+            current_user["id"],
+        ),
+    )
+    connection.commit()
+    row = connection.execute(
+        """
+        SELECT id, user_id, client_type, name, email, address, siren, vat_number, created_at
+        FROM clients
+        WHERE id = ? AND user_id = ?
+        """,
+        (client_id, current_user["id"]),
+    ).fetchone()
+    return serialize_client(row)
+
+
+@app.delete("/clients/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_client(
+    client_id: int,
+    current_user: Annotated[sqlite3.Row, Depends(get_current_user)],
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> None:
+    cursor = connection.execute("DELETE FROM clients WHERE id = ? AND user_id = ?", (client_id, current_user["id"]))
+    connection.commit()
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
 
 
 @app.post("/invoices", status_code=status.HTTP_201_CREATED)
