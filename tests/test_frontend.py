@@ -45,6 +45,26 @@ def test_frontend_exposes_authenticated_client_crud_interface():
     assert "TVA intracommunautaire" in app_source
 
 
+def test_frontend_exposes_invoice_creation_interface_with_dynamic_totals():
+    api_source = Path("frontend/src/api.ts").read_text(encoding="utf-8")
+    app_source = Path("frontend/src/main.tsx").read_text(encoding="utf-8")
+
+    assert "InvoicePayload" in api_source
+    assert "InvoiceLinePayload" in api_source
+    assert "listInvoices" in api_source
+    assert "createInvoice" in api_source
+    assert "'/invoices'" in api_source
+
+    assert "Création de factures" in app_source
+    assert "Créer une facture" in app_source
+    assert "Ajouter une ligne" in app_source
+    assert "Total HT" in app_source
+    assert "Total TVA" in app_source
+    assert "Total TTC" in app_source
+    assert "calculateInvoiceTotals" in app_source
+    assert "createInvoice(token, buildPayload())" in app_source
+
+
 def test_api_allows_configured_frontend_origin(client):
     response = client.options(
         "/auth/login",

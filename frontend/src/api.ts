@@ -36,6 +36,45 @@ export type ClientPayload = {
   vat_number?: string | null;
 };
 
+export type InvoiceLinePayload = {
+  description: string;
+  quantity: number;
+  unit_price: number;
+  tax_rate: number;
+};
+
+export type InvoicePayload = {
+  client_id: number;
+  invoice_number?: string | null;
+  issue_date: string;
+  due_date?: string | null;
+  lines: InvoiceLinePayload[];
+};
+
+export type InvoiceLine = InvoiceLinePayload & {
+  id: number;
+  invoice_id: number;
+  line_total_excluding_tax: number;
+  line_total_tax: number;
+  line_total_including_tax: number;
+};
+
+export type Invoice = {
+  id: number;
+  user_id: number;
+  client_id: number;
+  invoice_number: string;
+  issue_date: string;
+  due_date: string | null;
+  status: 'draft' | 'issued' | 'paid' | 'cancelled';
+  currency: string;
+  total_excluding_tax: number;
+  total_tax: number;
+  total_including_tax: number;
+  created_at: string;
+  lines?: InvoiceLine[];
+};
+
 export type HealthResponse = {
   status: string;
 };
@@ -136,5 +175,20 @@ export function deleteClient(token: string, clientId: number): Promise<void> {
   return request<void>(`/clients/${clientId}`, {
     method: 'DELETE',
     headers: authHeaders(token),
+  });
+}
+
+export function listInvoices(token: string): Promise<Invoice[]> {
+  return request<Invoice[]>('/invoices', {
+    method: 'GET',
+    headers: authHeaders(token),
+  });
+}
+
+export function createInvoice(token: string, payload: InvoicePayload): Promise<Invoice> {
+  return request<Invoice>('/invoices', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
   });
 }
