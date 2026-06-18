@@ -6,6 +6,9 @@
 - Tests should run from the repository root with `python -m pytest`.
 - Authentication uses HS256 JWT bearer tokens generated in `app.main`; configure the signing secret with `FACNOR_JWT_SECRET`.
 
+- Frontend authentication lives in `frontend/` as a Vite React TypeScript app; configure backend URL with `VITE_API_BASE_URL` and run `npm run dev` or `npm run build` there.
+- Backend CORS is configured in `app.main` with `FACNOR_CORS_ORIGINS`, defaulting to the Vite dev origin `http://localhost:5173`.
+
 - Client management exposes authenticated CRUD endpoints under `/clients`; clients are scoped to the current JWT user.
 - Client records support `client_type` values `b2c` and `b2b`; B2B clients require valid French SIREN and VAT (`FR` key + SIREN) that match.
 
