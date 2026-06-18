@@ -13,6 +13,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError, field_validator, model_validator
 
@@ -26,6 +27,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="FacNor API", version="0.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin.strip() for origin in os.getenv("FACNOR_CORS_ORIGINS", "http://localhost:5173").split(",")],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class UserCreate(BaseModel):
@@ -256,15 +264,21 @@ def create_user(payload: UserCreate, connection: sqlite3.Connection = Depends(ge
 
 
 @app.post("/auth/login")
-def login(payload: UserLogin, connection: sqlite3.Connection = Depends(get_connection)) -> dict[str, str]:
+def login(payload: UserLogin, connection: sqlite3.Connection = Depends(get_connection)) -> dict[str, object]:
     user = connection.execute(
-        "SELECT id, email, password_salt, password_hash FROM users WHERE email = ?",
+        "SELECT id, email, full_name, password_salt, password_hash FROM users WHERE email = ?",
         (payload.email,),
     ).fetchone()
     if user is None or not verify_password(payload.password, user["password_salt"], user["password_hash"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    return {"access_token": create_access_token(user["id"], user["email"]), "token_type": "bearer"}
+    return {
+        "id": user["id"],
+        "email": user["email"],
+        "full_name": user["full_name"],
+        "access_token": create_access_token(user["id"], user["email"]),
+        "token_type": "bearer",
+    }
 
 
 @app.post("/clients", status_code=status.HTTP_201_CREATED)
