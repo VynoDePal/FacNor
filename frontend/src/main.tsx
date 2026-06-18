@@ -1,6 +1,6 @@
 import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { API_BASE_URL, AuthResponse, Client, ClientPayload, Invoice, InvoiceLinePayload, InvoicePayload, createClient, createInvoice, deleteClient, getHealth, listClients, listInvoices, login, register, updateClient } from './api';
+import { API_BASE_URL, AuthResponse, Client, ClientPayload, Invoice, InvoiceFilters, InvoiceLinePayload, InvoicePayload, createClient, createInvoice, deleteClient, getHealth, listClients, listInvoices, login, register, updateClient } from './api';
 import './styles.css';
 
 const TOKEN_STORAGE_KEY = 'facnor_access_token';
@@ -9,6 +9,7 @@ const emptyInvoiceLine: InvoiceLinePayload = { description: '', quantity: 1, uni
 const today = new Date().toISOString().slice(0, 10);
 type View = 'login' | 'register' | 'dashboard';
 type InvoiceFormState = { client_id: string; invoice_number: string; issue_date: string; due_date: string; lines: InvoiceLinePayload[] };
+type InvoiceFilterState = { search: string; status_filter: InvoiceFilters['status_filter']; client_id: string; issue_date_from: string; issue_date_to: string };
 
 function getInitialView(): View {
   return localStorage.getItem(TOKEN_STORAGE_KEY) ? 'dashboard' : 'login';
@@ -296,6 +297,7 @@ function ClientsManager({ token, onClientsChange }: { token: string; onClientsCh
 
 function InvoicesManager({ token, clients }: { token: string; clients: Client[] }) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [filters, setFilters] = useState<InvoiceFilterState>({ search: '', status_filter: '', client_id: '', issue_date_from: '', issue_date_to: '' });
   const [form, setForm] = useState<InvoiceFormState>(() => createEmptyInvoiceForm(clients));
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -304,23 +306,48 @@ function InvoicesManager({ token, clients }: { token: string; clients: Client[] 
   const totals = useMemo(() => calculateInvoiceTotals(form.lines), [form.lines]);
 
   useEffect(() => {
-    refreshInvoices();
+    refreshInvoices(filters);
   }, [token]);
 
   useEffect(() => {
     setForm((current) => current.client_id || clients.length === 0 ? current : { ...current, client_id: clients[0].id.toString() });
   }, [clients]);
 
-  async function refreshInvoices() {
+  function buildFilters(filterState: InvoiceFilterState = filters): InvoiceFilters {
+    return {
+      search: filterState.search.trim(),
+      status_filter: filterState.status_filter,
+      client_id: filterState.client_id ? Number(filterState.client_id) : '',
+      issue_date_from: filterState.issue_date_from,
+      issue_date_to: filterState.issue_date_to,
+    };
+  }
+
+  async function refreshInvoices(filterState: InvoiceFilterState = filters) {
     setError(null);
     setLoading(true);
     try {
-      setInvoices(await listInvoices(token));
+      setInvoices(await listInvoices(token, buildFilters(filterState)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Chargement des factures impossible.');
     } finally {
       setLoading(false);
     }
+  }
+
+  function updateFilter<K extends keyof InvoiceFilterState>(field: K, value: InvoiceFilterState[K]) {
+    setFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  function applyFilters(event: FormEvent) {
+    event.preventDefault();
+    refreshInvoices(filters);
+  }
+
+  function resetFilters() {
+    const emptyFilters: InvoiceFilterState = { search: '', status_filter: '', client_id: '', issue_date_from: '', issue_date_to: '' };
+    setFilters(emptyFilters);
+    refreshInvoices(emptyFilters);
   }
 
   function updateField<K extends keyof Omit<InvoiceFormState, 'lines'>>(field: K, value: InvoiceFormState[K]) {
@@ -371,7 +398,18 @@ function InvoicesManager({ token, clients }: { token: string; clients: Client[] 
 
   return (
     <section className="invoices-panel" aria-labelledby="invoices-title">
-      <div className="section-heading"><div><p className="eyebrow">Création de factures</p><h2 id="invoices-title">Factures</h2></div><button type="button" className="secondary-button" onClick={refreshInvoices} disabled={isLoading}>Actualiser</button></div>
+      <div className="section-heading"><div><p className="eyebrow">Création de factures</p><h2 id="invoices-title">Factures</h2></div><button type="button" className="secondary-button" onClick={() => refreshInvoices()} disabled={isLoading}>Actualiser</button></div>
+      <form className="invoice-filters" onSubmit={applyFilters}>
+        <h3>Recherche et filtrage</h3>
+        <div className="form-grid">
+          <label>Client ou numéro<input value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} placeholder="Nom client ou FAC-2025-0001" /></label>
+          <label>Statut<select value={filters.status_filter} onChange={(event) => updateFilter('status_filter', event.target.value as InvoiceFilterState['status_filter'])}><option value="">Tous</option><option value="draft">Brouillon</option><option value="issued">Émise</option><option value="paid">Payée</option><option value="cancelled">Annulée</option></select></label>
+          <label>Client<select value={filters.client_id} onChange={(event) => updateFilter('client_id', event.target.value)}><option value="">Tous les clients</option>{clients.map((client) => <option value={client.id} key={client.id}>{client.name}</option>)}</select></label>
+          <label>Émise après<input type="date" value={filters.issue_date_from} onChange={(event) => updateFilter('issue_date_from', event.target.value)} /></label>
+          <label>Émise avant<input type="date" value={filters.issue_date_to} onChange={(event) => updateFilter('issue_date_to', event.target.value)} /></label>
+        </div>
+        <div className="form-actions"><button type="submit" disabled={isLoading}>Rechercher</button><button type="button" className="secondary-button" onClick={resetFilters} disabled={isLoading}>Réinitialiser</button></div>
+      </form>
       {clients.length === 0 ? <p className="info-card">Créez d’abord un client pour pouvoir émettre une facture.</p> : (
         <form className="invoice-form" onSubmit={submit}>
           <h3>Créer une facture</h3>
@@ -406,7 +444,7 @@ function InvoicesManager({ token, clients }: { token: string; clients: Client[] 
       <div className="invoices-list">
         {isLoading ? <p>Chargement des factures...</p> : invoices.length === 0 ? <p>Aucune facture créée pour le moment.</p> : invoices.map((invoice) => (
           <article className="invoice-card" key={invoice.id}>
-            <div><span className="badge">{invoice.status}</span><h3>{invoice.invoice_number}</h3><p>Émise le {invoice.issue_date}{invoice.due_date ? ` · échéance ${invoice.due_date}` : ''}</p></div>
+            <div><span className="badge">{invoice.status}</span><h3>{invoice.invoice_number}</h3><p>{invoice.client_name ? `${invoice.client_name} · ` : ''}Émise le {invoice.issue_date}{invoice.due_date ? ` · échéance ${invoice.due_date}` : ''}</p></div>
             <div className="invoice-amounts"><span>HT {formatAmount(invoice.total_excluding_tax)}</span><span>TVA {formatAmount(invoice.total_tax)}</span><strong>TTC {formatAmount(invoice.total_including_tax)}</strong></div>
           </article>
         ))}
