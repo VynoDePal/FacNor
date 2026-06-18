@@ -169,3 +169,87 @@ def test_invoice_response_exposes_line_tax_and_ttc_totals(client):
     assert invoice["lines"][1]["line_total_including_tax"] == 31.65
     assert invoice["total_including_tax"] == sum(line["line_total_including_tax"] for line in invoice["lines"])
 
+
+
+def create_invoice_for_client(test_client, headers, owned_client, invoice_number, issue_date="2025-01-15"):
+    response = test_client.post(
+        "/invoices",
+        headers=headers,
+        json={**invoice_payload(owned_client["id"], issue_date), "invoice_number": invoice_number},
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_invoice_search_matches_client_name_or_invoice_number(client):
+    user = register_user(client, "invoice-search@example.com")
+    headers = auth_headers(user["access_token"])
+    acme_client = create_owned_client(client, user["access_token"], "Acme Industrie")
+    beta_client = create_owned_client(client, user["access_token"], "Beta Conseil")
+    create_invoice_for_client(client, headers, acme_client, "FAC-2025-ACME")
+    create_invoice_for_client(client, headers, beta_client, "FAC-2025-BETA")
+
+    client_name_response = client.get("/invoices?search=acme", headers=headers)
+    invoice_number_response = client.get("/invoices?search=BETA", headers=headers)
+
+    assert client_name_response.status_code == 200
+    assert [invoice["invoice_number"] for invoice in client_name_response.json()] == ["FAC-2025-ACME"]
+    assert client_name_response.json()[0]["client_name"] == "Acme Industrie"
+    assert invoice_number_response.status_code == 200
+    assert [invoice["client_name"] for invoice in invoice_number_response.json()] == ["Beta Conseil"]
+
+
+def test_invoice_filters_by_status_client_and_issue_date(client, connection):
+    user = register_user(client, "invoice-filters@example.com")
+    headers = auth_headers(user["access_token"])
+    first_client = create_owned_client(client, user["access_token"], "Client Filtres A")
+    second_client = create_owned_client(client, user["access_token"], "Client Filtres B")
+    draft_invoice = create_invoice_for_client(client, headers, first_client, "FAC-FILTER-DRAFT", "2025-01-10")
+    paid_invoice = create_invoice_for_client(client, headers, second_client, "FAC-FILTER-PAID", "2025-02-10")
+    connection.execute("UPDATE invoices SET status = 'paid' WHERE id = ?", (paid_invoice["id"],))
+    connection.commit()
+
+    status_response = client.get("/invoices?status_filter=paid", headers=headers)
+    client_response = client.get(f"/invoices?client_id={first_client['id']}", headers=headers)
+    date_response = client.get("/invoices?issue_date_from=2025-02-01&issue_date_to=2025-02-28", headers=headers)
+
+    assert status_response.status_code == 200
+    assert [invoice["id"] for invoice in status_response.json()] == [paid_invoice["id"]]
+    assert client_response.status_code == 200
+    assert [invoice["id"] for invoice in client_response.json()] == [draft_invoice["id"]]
+    assert date_response.status_code == 200
+    assert [invoice["invoice_number"] for invoice in date_response.json()] == ["FAC-FILTER-PAID"]
+
+
+def test_invoice_search_stays_scoped_to_owner_and_fast(client):
+    first_user = register_user(client, "invoice-fast-owner@example.com")
+    second_user = register_user(client, "invoice-fast-other@example.com")
+    first_headers = auth_headers(first_user["access_token"])
+    second_headers = auth_headers(second_user["access_token"])
+    first_client = create_owned_client(client, first_user["access_token"], "Chrono Client")
+    second_client = create_owned_client(client, second_user["access_token"], "Chrono Client")
+
+    for index in range(80):
+        create_invoice_for_client(client, first_headers, first_client, f"FAC-FAST-{index:04d}")
+    create_invoice_for_client(client, second_headers, second_client, "FAC-FAST-OTHER")
+
+    import time
+
+    start = time.perf_counter()
+    response = client.get("/invoices?search=FAC-FAST-0079", headers=first_headers)
+    elapsed = time.perf_counter() - start
+
+    assert response.status_code == 200
+    assert elapsed < 2
+    assert [invoice["invoice_number"] for invoice in response.json()] == ["FAC-FAST-0079"]
+
+
+def test_invoice_filters_reject_invalid_values(client):
+    user = register_user(client, "invoice-invalid-filter@example.com")
+    headers = auth_headers(user["access_token"])
+
+    invalid_status_response = client.get("/invoices?status_filter=archived", headers=headers)
+    invalid_range_response = client.get("/invoices?issue_date_from=2025-03-01&issue_date_to=2025-02-01", headers=headers)
+
+    assert invalid_status_response.status_code == 422
+    assert invalid_range_response.status_code == 422

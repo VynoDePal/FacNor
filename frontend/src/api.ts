@@ -63,6 +63,7 @@ export type Invoice = {
   id: number;
   user_id: number;
   client_id: number;
+  client_name?: string;
   invoice_number: string;
   issue_date: string;
   due_date: string | null;
@@ -73,6 +74,14 @@ export type Invoice = {
   total_including_tax: number;
   created_at: string;
   lines?: InvoiceLine[];
+};
+
+export type InvoiceFilters = {
+  search?: string;
+  status_filter?: Invoice['status'] | '';
+  client_id?: number | '';
+  issue_date_from?: string;
+  issue_date_to?: string;
 };
 
 export type HealthResponse = {
@@ -178,8 +187,19 @@ export function deleteClient(token: string, clientId: number): Promise<void> {
   });
 }
 
-export function listInvoices(token: string): Promise<Invoice[]> {
-  return request<Invoice[]>('/invoices', {
+function buildQueryString(filters: InvoiceFilters = {}): string {
+  const parameters = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      parameters.set(key, String(value));
+    }
+  });
+  const queryString = parameters.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
+export function listInvoices(token: string, filters: InvoiceFilters = {}): Promise<Invoice[]> {
+  return request<Invoice[]>(`/invoices${buildQueryString(filters)}`, {
     method: 'GET',
     headers: authHeaders(token),
   });
