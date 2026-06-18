@@ -18,6 +18,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError, field_validator, model_validator
 
 from app.db import get_connection, initialize_database
+from app.tax import TaxLineInput, calculate_invoice_totals, decimal_from_number
 
 
 @asynccontextmanager
@@ -124,6 +125,8 @@ def serialize_invoice_line(row: sqlite3.Row) -> dict[str, object]:
         "unit_price": row["unit_price"],
         "tax_rate": row["tax_rate"],
         "line_total_excluding_tax": row["line_total_excluding_tax"],
+        "line_total_tax": row["line_total_tax"],
+        "line_total_including_tax": row["line_total_including_tax"],
     }
 
 
@@ -489,9 +492,16 @@ def create_invoice(
         if existing_invoice is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Invoice number already exists")
 
-    total_excluding_tax = sum(line.quantity * line.unit_price for line in payload.lines)
-    total_tax = sum(line.quantity * line.unit_price * line.tax_rate / 100 for line in payload.lines)
-    total_including_tax = total_excluding_tax + total_tax
+    tax_totals = calculate_invoice_totals(
+        [
+            TaxLineInput(
+                quantity=decimal_from_number(line.quantity),
+                unit_price=decimal_from_number(line.unit_price),
+                tax_rate=decimal_from_number(line.tax_rate),
+            )
+            for line in payload.lines
+        ]
+    )
 
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -509,17 +519,18 @@ def create_invoice(
                 invoice_number,
                 payload.issue_date.isoformat(),
                 payload.due_date.isoformat() if payload.due_date else None,
-                total_excluding_tax,
-                total_tax,
-                total_including_tax,
+                float(tax_totals.total_excluding_tax),
+                float(tax_totals.total_tax),
+                float(tax_totals.total_including_tax),
             ),
         )
         invoice_id = cursor.lastrowid
         connection.executemany(
             """
             INSERT INTO invoice_lines (
-                invoice_id, description, quantity, unit_price, tax_rate, line_total_excluding_tax
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                invoice_id, description, quantity, unit_price, tax_rate,
+                line_total_excluding_tax, line_total_tax, line_total_including_tax
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -528,9 +539,11 @@ def create_invoice(
                     line.quantity,
                     line.unit_price,
                     line.tax_rate,
-                    line.quantity * line.unit_price,
+                    float(line_totals.total_excluding_tax),
+                    float(line_totals.total_tax),
+                    float(line_totals.total_including_tax),
                 )
-                for line in payload.lines
+                for line, line_totals in zip(payload.lines, tax_totals.lines, strict=True)
             ],
         )
         connection.commit()
@@ -551,12 +564,16 @@ def create_invoice(
     ).fetchone()
     lines = connection.execute(
         """
-        SELECT id, invoice_id, description, quantity, unit_price, tax_rate, line_total_excluding_tax
+        SELECT invoice_lines.id, invoice_lines.invoice_id, invoice_lines.description,
+               invoice_lines.quantity, invoice_lines.unit_price, invoice_lines.tax_rate,
+               invoice_lines.line_total_excluding_tax, invoice_lines.line_total_tax,
+               invoice_lines.line_total_including_tax
         FROM invoice_lines
-        WHERE invoice_id = ?
-        ORDER BY id
+        INNER JOIN invoices ON invoices.id = invoice_lines.invoice_id
+        WHERE invoice_lines.invoice_id = ? AND invoices.user_id = ?
+        ORDER BY invoice_lines.id
         """,
-        (invoice_id,),
+        (invoice_id, user_id),
     ).fetchall()
     return serialize_invoice(row, lines)
 
@@ -598,11 +615,15 @@ def get_invoice(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
     lines = connection.execute(
         """
-        SELECT id, invoice_id, description, quantity, unit_price, tax_rate, line_total_excluding_tax
+        SELECT invoice_lines.id, invoice_lines.invoice_id, invoice_lines.description,
+               invoice_lines.quantity, invoice_lines.unit_price, invoice_lines.tax_rate,
+               invoice_lines.line_total_excluding_tax, invoice_lines.line_total_tax,
+               invoice_lines.line_total_including_tax
         FROM invoice_lines
-        WHERE invoice_id = ?
-        ORDER BY id
+        INNER JOIN invoices ON invoices.id = invoice_lines.invoice_id
+        WHERE invoice_lines.invoice_id = ? AND invoices.user_id = ?
+        ORDER BY invoice_lines.id
         """,
-        (invoice_id,),
+        (invoice_id, current_user["id"]),
     ).fetchall()
     return serialize_invoice(row, lines)
