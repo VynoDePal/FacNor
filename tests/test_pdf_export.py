@@ -11,8 +11,18 @@ def create_invoice(client, headers, client_id):
             "issue_date": "2025-02-03",
             "due_date": "2025-03-05",
             "lines": [
-                {"description": "Prestation conseil", "quantity": 2, "unit_price": 100, "tax_rate": 20},
-                {"description": "Frais de dossier", "quantity": 1, "unit_price": 50, "tax_rate": 10},
+                {
+                    "description": "Prestation conseil",
+                    "quantity": 2,
+                    "unit_price": 100,
+                    "tax_rate": 20,
+                },
+                {
+                    "description": "Frais de dossier",
+                    "quantity": 1,
+                    "unit_price": 50,
+                    "tax_rate": 10,
+                },
             ],
         },
     )
@@ -30,7 +40,10 @@ def test_invoice_pdf_export_contains_required_invoice_information(client):
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
-    assert response.headers["content-disposition"] == 'attachment; filename="facture-FAC-2025-0001.pdf"'
+    assert (
+        response.headers["content-disposition"]
+        == 'attachment; filename="facture-FAC-2025-0001.pdf"'
+    )
     assert response.content.startswith(b"%PDF-1.4")
     pdf_text = response.content.decode("latin-1")
     assert "Emetteur: Ada Lovelace" in pdf_text
@@ -53,7 +66,9 @@ def test_invoice_pdf_export_is_scoped_to_authenticated_owner(client):
     attacker = register_user(client, "pdf-attacker@example.com")
     owner_headers = auth_headers(owner["access_token"])
     attacker_headers = auth_headers(attacker["access_token"])
-    owned_client = create_owned_client(client, owner["access_token"], "Client privé PDF")
+    owned_client = create_owned_client(
+        client, owner["access_token"], "Client privé PDF"
+    )
     invoice = create_invoice(client, owner_headers, owned_client["id"])
 
     response = client.get(f"/invoices/{invoice['id']}/pdf", headers=attacker_headers)

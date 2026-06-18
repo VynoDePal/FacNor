@@ -7,7 +7,7 @@ def test_schema_creates_required_tables(connection):
     table_names = {
         row["name"]
         for row in connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
         )
     }
 
@@ -53,6 +53,7 @@ def test_invoice_lines_cascade_when_invoice_deleted(connection):
     connection.execute("DELETE FROM invoices WHERE id = ?", (invoice_id,))
     connection.commit()
 
-    count = connection.execute("SELECT COUNT(*) AS total FROM invoice_lines").fetchone()["total"]
+    count = connection.execute(
+        "SELECT COUNT(*) AS total FROM invoice_lines"
+    ).fetchone()["total"]
     assert count == 0
-

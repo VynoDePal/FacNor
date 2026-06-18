@@ -4,7 +4,11 @@ from app.main import decode_access_token
 def register_user(client, email="ada@example.com"):
     response = client.post(
         "/users",
-        json={"email": email, "full_name": "Ada Lovelace", "password": "correct horse battery staple"},
+        json={
+            "email": email,
+            "full_name": "Ada Lovelace",
+            "password": "correct horse battery staple",
+        },
     )
     assert response.status_code == 201
     return response.json()
@@ -95,7 +99,12 @@ def test_create_invoice_flow(client):
             "invoice_number": "FAC-2025-0001",
             "issue_date": "2025-01-15",
             "lines": [
-                {"description": "Prestation", "quantity": 2, "unit_price": 100, "tax_rate": 20}
+                {
+                    "description": "Prestation",
+                    "quantity": 2,
+                    "unit_price": 100,
+                    "tax_rate": 20,
+                },
             ],
         },
     )
@@ -107,20 +116,31 @@ def test_create_invoice_flow(client):
 
 
 def test_protected_endpoints_require_authentication(client):
-    assert client.post(
-        "/clients",
-        json={"name": "Société Exemple", "address": "10 rue de la Paix, 75002 Paris"},
-    ).status_code == 401
+    assert (
+        client.post(
+            "/clients",
+            json={
+                "name": "Société Exemple",
+                "address": "10 rue de la Paix, 75002 Paris",
+            },
+        ).status_code
+        == 401
+    )
 
-    assert client.post(
-        "/invoices",
-        json={
-            "client_id": 1,
-            "invoice_number": "FAC-2025-0002",
-            "issue_date": "2025-01-15",
-            "lines": [{"description": "Prestation", "quantity": 1, "unit_price": 100}],
-        },
-    ).status_code == 401
+    assert (
+        client.post(
+            "/invoices",
+            json={
+                "client_id": 1,
+                "invoice_number": "FAC-2025-0002",
+                "issue_date": "2025-01-15",
+                "lines": [
+                    {"description": "Prestation", "quantity": 1, "unit_price": 100}
+                ],
+            },
+        ).status_code
+        == 401
+    )
 
 
 def test_invoice_cannot_use_another_users_client(client):
@@ -160,7 +180,9 @@ def test_client_payload_cannot_assign_another_owner(client, connection):
 
     assert response.status_code == 201
     client_id = response.json()["id"]
-    stored_client = connection.execute("SELECT user_id FROM clients WHERE id = ?", (client_id,)).fetchone()
+    stored_client = connection.execute(
+        "SELECT user_id FROM clients WHERE id = ?", (client_id,)
+    ).fetchone()
     assert response.json()["user_id"] == first_user["id"]
     assert stored_client["user_id"] == first_user["id"]
 
@@ -189,7 +211,9 @@ def test_invoice_payload_cannot_assign_another_owner(client, connection):
 
     assert response.status_code == 201
     invoice_id = response.json()["id"]
-    stored_invoice = connection.execute("SELECT user_id FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+    stored_invoice = connection.execute(
+        "SELECT user_id FROM invoices WHERE id = ?", (invoice_id,)
+    ).fetchone()
     assert stored_invoice["user_id"] == first_user["id"]
 
 
@@ -234,4 +258,3 @@ def test_invoice_number_uniqueness_is_scoped_to_owner(client):
     assert first_invoice.status_code == 201
     assert second_invoice.status_code == 201
     assert duplicate_invoice.status_code == 409
-

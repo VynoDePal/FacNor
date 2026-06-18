@@ -7,9 +7,9 @@ def test_frontend_is_vite_project_with_required_scripts():
 
     assert '"dev"' in package_json
     assert '"build"' in package_json
-    assert 'vite' in package_json
-    assert '@vitejs/plugin-react' in package_json
-    assert 'defineConfig' in vite_config
+    assert "vite" in package_json
+    assert "@vitejs/plugin-react" in package_json
+    assert "defineConfig" in vite_config
 
 
 def test_frontend_uses_configurable_api_url_and_auth_endpoints():

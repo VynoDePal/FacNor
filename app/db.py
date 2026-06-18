@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = BASE_DIR / "schema.sql"

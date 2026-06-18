@@ -7,14 +7,14 @@ from app.db import connect, initialize_database
 from app.main import app
 
 
-@pytest.fixture()
+@pytest.fixture
 def database_path(tmp_path):
     path = tmp_path / "facnor_test.db"
     initialize_database(path)
     return path
 
 
-@pytest.fixture()
+@pytest.fixture
 def connection(database_path):
     connection = connect(database_path)
     try:
@@ -23,7 +23,7 @@ def connection(database_path):
         connection.close()
 
 
-@pytest.fixture()
+@pytest.fixture
 def client(database_path, monkeypatch):
     monkeypatch.setenv("FACNOR_DATABASE_PATH", str(database_path))
     with TestClient(app) as test_client:

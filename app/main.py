@@ -42,7 +42,7 @@ app.add_middleware(
     allow_origins=[
         origin.strip()
         for origin in os.getenv("FACNOR_CORS_ORIGINS", "http://localhost:5173").split(
-            ","
+            ",",
         )
     ],
     allow_credentials=True,
@@ -79,12 +79,12 @@ class ClientBase(BaseModel):
         return normalized or None
 
     @model_validator(mode="after")
-    def validate_business_identifiers(self) -> "ClientBase":
+    def validate_business_identifiers(self) -> ClientBase:
         if self.client_type == "b2b":
             if self.siren is None or not is_valid_siren(self.siren):
                 raise ValueError("A B2B client must provide a valid SIREN")
             if self.vat_number is None or not is_valid_french_vat_number(
-                self.vat_number
+                self.vat_number,
             ):
                 raise ValueError("A B2B client must provide a valid French VAT number")
             if self.vat_number[4:] != self.siren:
@@ -150,7 +150,8 @@ def serialize_invoice_line(row: sqlite3.Row) -> dict[str, object]:
 
 
 def serialize_invoice(
-    row: sqlite3.Row, lines: list[sqlite3.Row] | None = None
+    row: sqlite3.Row,
+    lines: list[sqlite3.Row] | None = None,
 ) -> dict[str, object]:
     invoice = {
         "id": row["id"],
@@ -174,7 +175,9 @@ def serialize_invoice(
 
 
 def fetch_invoice_lines(
-    connection: sqlite3.Connection, invoice_id: int, user_id: int
+    connection: sqlite3.Connection,
+    invoice_id: int,
+    user_id: int,
 ) -> list[sqlite3.Row]:
     return connection.execute(
         """
@@ -192,7 +195,9 @@ def fetch_invoice_lines(
 
 
 def fetch_invoice_with_client(
-    connection: sqlite3.Connection, invoice_id: int, user_id: int
+    connection: sqlite3.Connection,
+    invoice_id: int,
+    user_id: int,
 ) -> tuple[sqlite3.Row, list[sqlite3.Row]] | None:
     row = connection.execute(
         """
@@ -214,7 +219,9 @@ def fetch_invoice_with_client(
 
 
 def next_invoice_number(
-    connection: sqlite3.Connection, user_id: int, issue_date: date
+    connection: sqlite3.Connection,
+    user_id: int,
+    issue_date: date,
 ) -> str:
     year = issue_date.year
     row = connection.execute(
@@ -303,12 +310,14 @@ def create_access_token(user_id: int, email: str) -> str:
         [
             base64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8")),
             base64url_encode(
-                json.dumps(payload, separators=(",", ":")).encode("utf-8")
+                json.dumps(payload, separators=(",", ":")).encode("utf-8"),
             ),
-        ]
+        ],
     )
     signature = hmac.new(
-        get_jwt_secret().encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256
+        get_jwt_secret().encode("utf-8"),
+        signing_input.encode("ascii"),
+        hashlib.sha256,
     ).digest()
     return f"{signing_input}.{base64url_encode(signature)}"
 
@@ -332,14 +341,16 @@ def decode_access_token(token: str) -> dict[str, Any]:
         )
 
     if header.get("alg") != JWT_ALGORITHM or not hmac.compare_digest(
-        signature, expected_signature
+        signature,
+        expected_signature,
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
         )
     if not isinstance(payload.get("sub"), str) or not isinstance(
-        payload.get("exp"), int
+        payload.get("exp"),
+        int,
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -356,7 +367,10 @@ def decode_access_token(token: str) -> dict[str, Any]:
 def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
     salt = salt or secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac(
-        "sha256", password.encode("utf-8"), salt.encode("utf-8"), 120_000
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        120_000,
     )
     return salt, digest.hex()
 
@@ -372,7 +386,8 @@ def get_current_user(
 ) -> sqlite3.Row:
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
         )
 
     payload = decode_access_token(credentials.credentials)
@@ -395,7 +410,8 @@ def health() -> dict[str, str]:
 
 @app.post("/users", status_code=status.HTTP_201_CREATED)
 def create_user(
-    payload: UserCreate, connection: sqlite3.Connection = Depends(get_connection)
+    payload: UserCreate,
+    connection: sqlite3.Connection = Depends(get_connection),
 ) -> dict[str, object]:
     salt, password_hash = hash_password(payload.password)
     try:
@@ -412,7 +428,8 @@ def create_user(
         connection.commit()
     except sqlite3.IntegrityError as exc:
         raise HTTPException(
-            status_code=409, detail="User email already exists"
+            status_code=409,
+            detail="User email already exists",
         ) from exc
 
     user_id = int(cursor.lastrowid)
@@ -427,17 +444,21 @@ def create_user(
 
 @app.post("/auth/login")
 def login(
-    payload: UserLogin, connection: sqlite3.Connection = Depends(get_connection)
+    payload: UserLogin,
+    connection: sqlite3.Connection = Depends(get_connection),
 ) -> dict[str, object]:
     user = connection.execute(
         "SELECT id, email, full_name, password_salt, password_hash FROM users WHERE email = ?",
         (payload.email,),
     ).fetchone()
     if user is None or not verify_password(
-        payload.password, user["password_salt"], user["password_hash"]
+        payload.password,
+        user["password_salt"],
+        user["password_hash"],
     ):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
         )
 
     return {
@@ -516,7 +537,8 @@ def get_client(
     ).fetchone()
     if row is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Client not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Client not found",
         )
     return serialize_client(row)
 
@@ -538,7 +560,8 @@ def update_client(
     ).fetchone()
     if existing is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Client not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Client not found",
         )
 
     try:
@@ -558,7 +581,8 @@ def update_client(
         )
     except ValidationError as exc:
         raise HTTPException(
-            status_code=422, detail=exc.errors(include_context=False)
+            status_code=422,
+            detail=exc.errors(include_context=False),
         ) from exc
     connection.execute(
         """
@@ -602,7 +626,8 @@ def delete_client(
     connection.commit()
     if cursor.rowcount == 0:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Client not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Client not found",
         )
 
 
@@ -619,7 +644,8 @@ def create_invoice(
     ).fetchone()
     if client is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Client not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Client not found",
         )
 
     if payload.invoice_number is not None:
@@ -641,13 +667,15 @@ def create_invoice(
                 tax_rate=decimal_from_number(line.tax_rate),
             )
             for line in payload.lines
-        ]
+        ],
     )
 
     try:
         connection.execute("BEGIN IMMEDIATE")
         invoice_number = payload.invoice_number or next_invoice_number(
-            connection, user_id, payload.issue_date
+            connection,
+            user_id,
+            payload.issue_date,
         )
         cursor = connection.execute(
             """
@@ -687,7 +715,9 @@ def create_invoice(
                     float(line_totals.total_including_tax),
                 )
                 for line, line_totals in zip(
-                    payload.lines, tax_totals.lines, strict=True
+                    payload.lines,
+                    tax_totals.lines,
+                    strict=True,
                 )
             ],
         )
@@ -749,7 +779,7 @@ def list_invoices(
     normalized_search = search.strip() if search is not None else ""
     if normalized_search:
         conditions.append(
-            "(LOWER(invoices.invoice_number) LIKE LOWER(?) OR LOWER(clients.name) LIKE LOWER(?))"
+            "(LOWER(invoices.invoice_number) LIKE LOWER(?) OR LOWER(clients.name) LIKE LOWER(?))",
         )
         search_pattern = f"%{normalized_search}%"
         parameters.extend([search_pattern, search_pattern])
@@ -799,7 +829,8 @@ def get_invoice(
     ).fetchone()
     if row is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice not found",
         )
     lines = fetch_invoice_lines(connection, invoice_id, current_user["id"])
     return serialize_invoice(row, lines)
@@ -814,7 +845,8 @@ def export_invoice_pdf(
     invoice_data = fetch_invoice_with_client(connection, invoice_id, current_user["id"])
     if invoice_data is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice not found",
         )
 
     row, lines = invoice_data

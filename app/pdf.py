@@ -63,15 +63,24 @@ def build_invoice_pdf(invoice: PdfInvoice) -> bytes:
             f"Adresse client: {invoice.client_address}",
             f"Numero: {invoice.invoice_number}",
             f"Date: {invoice.issue_date}",
-        ]
+        ],
     )
     if invoice.due_date:
         lines.append(f"Echeance: {invoice.due_date}")
 
-    lines.extend(["", "Detail des lignes:", "Description | Qte | Prix HT | TVA | Total HT | TVA | TTC"])
+    lines.extend(
+        [
+            "",
+            "Detail des lignes:",
+            "Description | Qte | Prix HT | TVA | Total HT | TVA | TTC",
+        ]
+    )
     for line in invoice.lines:
         description_parts = wrap(line.description, width=32) or [""]
-        first_description, extra_descriptions = description_parts[0], description_parts[1:]
+        first_description, extra_descriptions = (
+            description_parts[0],
+            description_parts[1:],
+        )
         lines.append(
             " | ".join(
                 [
@@ -82,8 +91,8 @@ def build_invoice_pdf(invoice: PdfInvoice) -> bytes:
                     format_amount(line.total_excluding_tax, invoice.currency),
                     format_amount(line.total_tax, invoice.currency),
                     format_amount(line.total_including_tax, invoice.currency),
-                ]
-            )
+                ],
+            ),
         )
         lines.extend(f"  {part}" for part in extra_descriptions)
 
@@ -91,11 +100,12 @@ def build_invoice_pdf(invoice: PdfInvoice) -> bytes:
     lines.extend(
         [
             "",
-            "Taux de TVA: " + ", ".join(f"{format_number(rate)}%" for rate in tax_rates),
+            "Taux de TVA: "
+            + ", ".join(f"{format_number(rate)}%" for rate in tax_rates),
             f"Total HT: {format_amount(invoice.total_excluding_tax, invoice.currency)}",
             f"Total TVA: {format_amount(invoice.total_tax, invoice.currency)}",
             f"Total TTC: {format_amount(invoice.total_including_tax, invoice.currency)}",
-        ]
+        ],
     )
     return build_simple_pdf(lines)
 
@@ -114,7 +124,11 @@ def build_simple_pdf(lines: list[str]) -> bytes:
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"\nendstream",
+        b"<< /Length "
+        + str(len(content)).encode("ascii")
+        + b" >>\nstream\n"
+        + content
+        + b"\nendstream",
     ]
 
     buffer = BytesIO()
@@ -132,6 +146,8 @@ def build_simple_pdf(lines: list[str]) -> bytes:
     for offset in offsets[1:]:
         buffer.write(f"{offset:010d} 00000 n \n".encode("ascii"))
     buffer.write(
-        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode(
+            "ascii"
+        ),
     )
     return buffer.getvalue()
