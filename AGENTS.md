@@ -11,4 +11,6 @@
 
 - Client management exposes authenticated CRUD endpoints under `/clients`; clients are scoped to the current JWT user.
 - Client records support `client_type` values `b2c` and `b2b`; B2B clients require valid French SIREN and VAT (`FR` key + SIREN) that match.
+- Invoice management exposes authenticated endpoints under `/invoices`; invoices are scoped to the current JWT user and include their lines on creation/detail responses.
+- Automatic invoice numbering uses `invoice_sequences` and generates `FAC-YYYY-NNNN` per user/year inside a `BEGIN IMMEDIATE` transaction.
 
