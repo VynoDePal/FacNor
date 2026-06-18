@@ -15,3 +15,5 @@
 - Automatic invoice numbering uses `invoice_sequences` and generates `FAC-YYYY-NNNN` per user/year inside a `BEGIN IMMEDIATE` transaction.
 
 - Frontend client management is implemented in `frontend/src/main.tsx` via `ClientsManager`, using authenticated helper functions from `frontend/src/api.ts` for `/clients` CRUD.
+- Frontend invoice creation is implemented in `frontend/src/main.tsx` via `InvoicesManager`, using authenticated helpers from `frontend/src/api.ts` for `/invoices` list/create. It calculates HT/TVA/TTC dynamically client-side before submitting to the backend tax engine.
+
