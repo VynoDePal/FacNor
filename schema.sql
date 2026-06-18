@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS invoice_lines (
     unit_price REAL NOT NULL CHECK (unit_price >= 0),
     tax_rate REAL NOT NULL DEFAULT 20 CHECK (tax_rate >= 0),
     line_total_excluding_tax REAL NOT NULL CHECK (line_total_excluding_tax >= 0),
+    line_total_tax REAL NOT NULL DEFAULT 0 CHECK (line_total_tax >= 0),
+    line_total_including_tax REAL NOT NULL DEFAULT 0 CHECK (line_total_including_tax >= 0),
     FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
 );
 
