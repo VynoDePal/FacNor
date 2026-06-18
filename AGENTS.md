@@ -14,3 +14,4 @@
 - Invoice management exposes authenticated endpoints under `/invoices`; invoices are scoped to the current JWT user and include their lines on creation/detail responses.
 - Automatic invoice numbering uses `invoice_sequences` and generates `FAC-YYYY-NNNN` per user/year inside a `BEGIN IMMEDIATE` transaction.
 
+- Frontend client management is implemented in `frontend/src/main.tsx` via `ClientsManager`, using authenticated helper functions from `frontend/src/api.ts` for `/clients` CRUD.
