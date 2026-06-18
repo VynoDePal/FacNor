@@ -12,12 +12,13 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError, field_validator, model_validator
 
 from app.db import get_connection, initialize_database
+from app.pdf import PdfInvoice, PdfInvoiceLine, build_invoice_pdf
 from app.tax import TaxLineInput, calculate_invoice_totals, decimal_from_number
 
 
@@ -148,6 +149,44 @@ def serialize_invoice(row: sqlite3.Row, lines: list[sqlite3.Row] | None = None) 
     if lines is not None:
         invoice["lines"] = [serialize_invoice_line(line) for line in lines]
     return invoice
+
+
+def fetch_invoice_lines(connection: sqlite3.Connection, invoice_id: int, user_id: int) -> list[sqlite3.Row]:
+    return connection.execute(
+        """
+        SELECT invoice_lines.id, invoice_lines.invoice_id, invoice_lines.description,
+               invoice_lines.quantity, invoice_lines.unit_price, invoice_lines.tax_rate,
+               invoice_lines.line_total_excluding_tax, invoice_lines.line_total_tax,
+               invoice_lines.line_total_including_tax
+        FROM invoice_lines
+        INNER JOIN invoices ON invoices.id = invoice_lines.invoice_id
+        WHERE invoice_lines.invoice_id = ? AND invoices.user_id = ?
+        ORDER BY invoice_lines.id
+        """,
+        (invoice_id, user_id),
+    ).fetchall()
+
+
+def fetch_invoice_with_client(
+    connection: sqlite3.Connection, invoice_id: int, user_id: int
+) -> tuple[sqlite3.Row, list[sqlite3.Row]] | None:
+    row = connection.execute(
+        """
+        SELECT invoices.id, invoices.user_id, invoices.client_id, invoices.invoice_number,
+               invoices.issue_date, invoices.due_date, invoices.status, invoices.currency,
+               invoices.total_excluding_tax, invoices.total_tax, invoices.total_including_tax,
+               invoices.created_at, users.full_name AS issuer_name, users.email AS issuer_email,
+               clients.name AS client_name, clients.email AS client_email, clients.address AS client_address
+        FROM invoices
+        INNER JOIN users ON users.id = invoices.user_id
+        INNER JOIN clients ON clients.id = invoices.client_id AND clients.user_id = invoices.user_id
+        WHERE invoices.id = ? AND invoices.user_id = ?
+        """,
+        (invoice_id, user_id),
+    ).fetchone()
+    if row is None:
+        return None
+    return row, fetch_invoice_lines(connection, invoice_id, user_id)
 
 
 def next_invoice_number(connection: sqlite3.Connection, user_id: int, issue_date: date) -> str:
@@ -562,19 +601,7 @@ def create_invoice(
         """,
         (invoice_id, user_id),
     ).fetchone()
-    lines = connection.execute(
-        """
-        SELECT invoice_lines.id, invoice_lines.invoice_id, invoice_lines.description,
-               invoice_lines.quantity, invoice_lines.unit_price, invoice_lines.tax_rate,
-               invoice_lines.line_total_excluding_tax, invoice_lines.line_total_tax,
-               invoice_lines.line_total_including_tax
-        FROM invoice_lines
-        INNER JOIN invoices ON invoices.id = invoice_lines.invoice_id
-        WHERE invoice_lines.invoice_id = ? AND invoices.user_id = ?
-        ORDER BY invoice_lines.id
-        """,
-        (invoice_id, user_id),
-    ).fetchall()
+    lines = fetch_invoice_lines(connection, invoice_id, user_id)
     return serialize_invoice(row, lines)
 
 
@@ -613,17 +640,51 @@ def get_invoice(
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
-    lines = connection.execute(
-        """
-        SELECT invoice_lines.id, invoice_lines.invoice_id, invoice_lines.description,
-               invoice_lines.quantity, invoice_lines.unit_price, invoice_lines.tax_rate,
-               invoice_lines.line_total_excluding_tax, invoice_lines.line_total_tax,
-               invoice_lines.line_total_including_tax
-        FROM invoice_lines
-        INNER JOIN invoices ON invoices.id = invoice_lines.invoice_id
-        WHERE invoice_lines.invoice_id = ? AND invoices.user_id = ?
-        ORDER BY invoice_lines.id
-        """,
-        (invoice_id, current_user["id"]),
-    ).fetchall()
+    lines = fetch_invoice_lines(connection, invoice_id, current_user["id"])
     return serialize_invoice(row, lines)
+
+
+@app.get("/invoices/{invoice_id}/pdf")
+def export_invoice_pdf(
+    invoice_id: int,
+    current_user: Annotated[sqlite3.Row, Depends(get_current_user)],
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> Response:
+    invoice_data = fetch_invoice_with_client(connection, invoice_id, current_user["id"])
+    if invoice_data is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+
+    row, lines = invoice_data
+    pdf_invoice = PdfInvoice(
+        issuer_name=row["issuer_name"],
+        issuer_email=row["issuer_email"],
+        client_name=row["client_name"],
+        client_email=row["client_email"],
+        client_address=row["client_address"],
+        invoice_number=row["invoice_number"],
+        issue_date=row["issue_date"],
+        due_date=row["due_date"],
+        currency=row["currency"],
+        lines=[
+            PdfInvoiceLine(
+                description=line["description"],
+                quantity=line["quantity"],
+                unit_price=line["unit_price"],
+                tax_rate=line["tax_rate"],
+                total_excluding_tax=line["line_total_excluding_tax"],
+                total_tax=line["line_total_tax"],
+                total_including_tax=line["line_total_including_tax"],
+            )
+            for line in lines
+        ],
+        total_excluding_tax=row["total_excluding_tax"],
+        total_tax=row["total_tax"],
+        total_including_tax=row["total_including_tax"],
+    )
+    filename = f"facture-{row['invoice_number']}.pdf"
+    return Response(
+        content=build_invoice_pdf(pdf_invoice),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
