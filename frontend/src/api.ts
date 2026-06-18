@@ -15,6 +15,10 @@ export type RegisterPayload = LoginPayload & {
   full_name: string;
 };
 
+export type HealthResponse = {
+  status: string;
+};
+
 const DEFAULT_API_URL = 'http://localhost:8000';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_URL).replace(/\/$/, '');
@@ -35,6 +39,10 @@ async function request<T>(path: string, options: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+export function getHealth(): Promise<HealthResponse> {
+  return request<HealthResponse>('/health', { method: 'GET' });
 }
 
 export function login(payload: LoginPayload): Promise<AuthResponse> {

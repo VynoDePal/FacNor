@@ -114,6 +114,60 @@ def serialize_client(row: sqlite3.Row) -> dict[str, object]:
     }
 
 
+
+def serialize_invoice_line(row: sqlite3.Row) -> dict[str, object]:
+    return {
+        "id": row["id"],
+        "invoice_id": row["invoice_id"],
+        "description": row["description"],
+        "quantity": row["quantity"],
+        "unit_price": row["unit_price"],
+        "tax_rate": row["tax_rate"],
+        "line_total_excluding_tax": row["line_total_excluding_tax"],
+    }
+
+
+def serialize_invoice(row: sqlite3.Row, lines: list[sqlite3.Row] | None = None) -> dict[str, object]:
+    invoice = {
+        "id": row["id"],
+        "user_id": row["user_id"],
+        "client_id": row["client_id"],
+        "invoice_number": row["invoice_number"],
+        "issue_date": row["issue_date"],
+        "due_date": row["due_date"],
+        "status": row["status"],
+        "currency": row["currency"],
+        "total_excluding_tax": row["total_excluding_tax"],
+        "total_tax": row["total_tax"],
+        "total_including_tax": row["total_including_tax"],
+        "created_at": row["created_at"],
+    }
+    if lines is not None:
+        invoice["lines"] = [serialize_invoice_line(line) for line in lines]
+    return invoice
+
+
+def next_invoice_number(connection: sqlite3.Connection, user_id: int, issue_date: date) -> str:
+    year = issue_date.year
+    row = connection.execute(
+        "SELECT next_number FROM invoice_sequences WHERE user_id = ? AND sequence_year = ?",
+        (user_id, year),
+    ).fetchone()
+    if row is None:
+        next_number = 1
+        connection.execute(
+            "INSERT INTO invoice_sequences (user_id, sequence_year, next_number) VALUES (?, ?, ?)",
+            (user_id, year, 2),
+        )
+    else:
+        next_number = row["next_number"]
+        connection.execute(
+            "UPDATE invoice_sequences SET next_number = ? WHERE user_id = ? AND sequence_year = ?",
+            (next_number + 1, user_id, year),
+        )
+    return f"FAC-{year}-{next_number:04d}"
+
+
 class ClientCreate(ClientBase):
     pass
 
@@ -143,7 +197,7 @@ class InvoiceLineCreate(BaseModel):
 
 class InvoiceCreate(BaseModel):
     client_id: int
-    invoice_number: str = Field(min_length=1)
+    invoice_number: str | None = Field(default=None, min_length=1)
     issue_date: date
     due_date: date | None = None
     lines: list[InvoiceLineCreate] = Field(min_length=1)
@@ -427,18 +481,21 @@ def create_invoice(
     if client is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
 
-    existing_invoice = connection.execute(
-        "SELECT id FROM invoices WHERE user_id = ? AND invoice_number = ?",
-        (user_id, payload.invoice_number),
-    ).fetchone()
-    if existing_invoice is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Invoice number already exists")
+    if payload.invoice_number is not None:
+        existing_invoice = connection.execute(
+            "SELECT id FROM invoices WHERE user_id = ? AND invoice_number = ?",
+            (user_id, payload.invoice_number),
+        ).fetchone()
+        if existing_invoice is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Invoice number already exists")
 
     total_excluding_tax = sum(line.quantity * line.unit_price for line in payload.lines)
     total_tax = sum(line.quantity * line.unit_price * line.tax_rate / 100 for line in payload.lines)
     total_including_tax = total_excluding_tax + total_tax
 
     try:
+        connection.execute("BEGIN IMMEDIATE")
+        invoice_number = payload.invoice_number or next_invoice_number(connection, user_id, payload.issue_date)
         cursor = connection.execute(
             """
             INSERT INTO invoices (
@@ -449,7 +506,7 @@ def create_invoice(
             (
                 user_id,
                 payload.client_id,
-                payload.invoice_number,
+                invoice_number,
                 payload.issue_date.isoformat(),
                 payload.due_date.isoformat() if payload.due_date else None,
                 total_excluding_tax,
@@ -479,12 +536,73 @@ def create_invoice(
         connection.commit()
     except sqlite3.IntegrityError as exc:
         connection.rollback()
+        if "UNIQUE" in str(exc).upper():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Invoice number already exists") from exc
         raise HTTPException(status_code=400, detail="Invalid invoice data") from exc
 
-    return {
-        "id": invoice_id,
-        "invoice_number": payload.invoice_number,
-        "total_excluding_tax": total_excluding_tax,
-        "total_tax": total_tax,
-        "total_including_tax": total_including_tax,
-    }
+    row = connection.execute(
+        """
+        SELECT id, user_id, client_id, invoice_number, issue_date, due_date, status, currency,
+               total_excluding_tax, total_tax, total_including_tax, created_at
+        FROM invoices
+        WHERE id = ? AND user_id = ?
+        """,
+        (invoice_id, user_id),
+    ).fetchone()
+    lines = connection.execute(
+        """
+        SELECT id, invoice_id, description, quantity, unit_price, tax_rate, line_total_excluding_tax
+        FROM invoice_lines
+        WHERE invoice_id = ?
+        ORDER BY id
+        """,
+        (invoice_id,),
+    ).fetchall()
+    return serialize_invoice(row, lines)
+
+
+@app.get("/invoices")
+def list_invoices(
+    current_user: Annotated[sqlite3.Row, Depends(get_current_user)],
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> list[dict[str, object]]:
+    rows = connection.execute(
+        """
+        SELECT id, user_id, client_id, invoice_number, issue_date, due_date, status, currency,
+               total_excluding_tax, total_tax, total_including_tax, created_at
+        FROM invoices
+        WHERE user_id = ?
+        ORDER BY issue_date, id
+        """,
+        (current_user["id"],),
+    ).fetchall()
+    return [serialize_invoice(row) for row in rows]
+
+
+@app.get("/invoices/{invoice_id}")
+def get_invoice(
+    invoice_id: int,
+    current_user: Annotated[sqlite3.Row, Depends(get_current_user)],
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> dict[str, object]:
+    row = connection.execute(
+        """
+        SELECT id, user_id, client_id, invoice_number, issue_date, due_date, status, currency,
+               total_excluding_tax, total_tax, total_including_tax, created_at
+        FROM invoices
+        WHERE id = ? AND user_id = ?
+        """,
+        (invoice_id, current_user["id"]),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    lines = connection.execute(
+        """
+        SELECT id, invoice_id, description, quantity, unit_price, tax_rate, line_total_excluding_tax
+        FROM invoice_lines
+        WHERE invoice_id = ?
+        ORDER BY id
+        """,
+        (invoice_id,),
+    ).fetchall()
+    return serialize_invoice(row, lines)

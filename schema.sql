@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS invoice_lines (
     FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS invoice_sequences (
+    user_id INTEGER NOT NULL,
+    sequence_year INTEGER NOT NULL,
+    next_number INTEGER NOT NULL DEFAULT 1 CHECK (next_number > 0),
+    PRIMARY KEY (user_id, sequence_year),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_clients_user_id ON clients(user_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_user_id ON invoices(user_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_client_id ON invoices(client_id);

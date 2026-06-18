@@ -1,6 +1,6 @@
 import React, { FormEvent, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { API_BASE_URL, AuthResponse, login, register } from './api';
+import { API_BASE_URL, AuthResponse, getHealth, login, register } from './api';
 import './styles.css';
 
 const TOKEN_STORAGE_KEY = 'facnor_access_token';
@@ -148,6 +148,14 @@ function RegisterForm({ onAuthenticated }: { onAuthenticated: (response: AuthRes
 }
 
 function Dashboard({ apiUrl, email, onLogout }: { apiUrl: string; email: string | null; onLogout: () => void }) {
+  const [apiStatus, setApiStatus] = useState('vérification...');
+
+  useEffect(() => {
+    getHealth()
+      .then((health) => setApiStatus(health.status))
+      .catch(() => setApiStatus('indisponible'));
+  }, []);
+
   return (
     <main className="dashboard">
       <nav>
@@ -161,6 +169,7 @@ function Dashboard({ apiUrl, email, onLogout }: { apiUrl: string; email: string 
         <div className="info-card">
           <span>API configurée</span>
           <code>{apiUrl}</code>
+          <span>Statut backend : {apiStatus}</span>
         </div>
       </section>
     </main>
