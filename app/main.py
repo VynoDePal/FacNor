@@ -146,6 +146,8 @@ def serialize_invoice(row: sqlite3.Row, lines: list[sqlite3.Row] | None = None) 
         "total_including_tax": row["total_including_tax"],
         "created_at": row["created_at"],
     }
+    if "client_name" in row.keys():
+        invoice["client_name"] = row["client_name"]
     if lines is not None:
         invoice["lines"] = [serialize_invoice_line(line) for line in lines]
     return invoice
@@ -608,17 +610,50 @@ def create_invoice(
 @app.get("/invoices")
 def list_invoices(
     current_user: Annotated[sqlite3.Row, Depends(get_current_user)],
+    search: str | None = None,
+    status_filter: str | None = None,
+    client_id: int | None = None,
+    issue_date_from: date | None = None,
+    issue_date_to: date | None = None,
     connection: sqlite3.Connection = Depends(get_connection),
 ) -> list[dict[str, object]]:
+    if status_filter is not None and status_filter not in {"draft", "issued", "paid", "cancelled"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid invoice status filter")
+    if issue_date_from is not None and issue_date_to is not None and issue_date_from > issue_date_to:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid issue date range")
+
+    conditions = ["invoices.user_id = ?"]
+    parameters: list[object] = [current_user["id"]]
+    normalized_search = search.strip() if search is not None else ""
+    if normalized_search:
+        conditions.append("(LOWER(invoices.invoice_number) LIKE LOWER(?) OR LOWER(clients.name) LIKE LOWER(?))")
+        search_pattern = f"%{normalized_search}%"
+        parameters.extend([search_pattern, search_pattern])
+    if status_filter is not None:
+        conditions.append("invoices.status = ?")
+        parameters.append(status_filter)
+    if client_id is not None:
+        conditions.append("invoices.client_id = ?")
+        parameters.append(client_id)
+    if issue_date_from is not None:
+        conditions.append("invoices.issue_date >= ?")
+        parameters.append(issue_date_from.isoformat())
+    if issue_date_to is not None:
+        conditions.append("invoices.issue_date <= ?")
+        parameters.append(issue_date_to.isoformat())
+
     rows = connection.execute(
-        """
-        SELECT id, user_id, client_id, invoice_number, issue_date, due_date, status, currency,
-               total_excluding_tax, total_tax, total_including_tax, created_at
+        f"""
+        SELECT invoices.id, invoices.user_id, invoices.client_id, invoices.invoice_number,
+               invoices.issue_date, invoices.due_date, invoices.status, invoices.currency,
+               invoices.total_excluding_tax, invoices.total_tax, invoices.total_including_tax,
+               invoices.created_at, clients.name AS client_name
         FROM invoices
-        WHERE user_id = ?
-        ORDER BY issue_date, id
+        INNER JOIN clients ON clients.id = invoices.client_id AND clients.user_id = invoices.user_id
+        WHERE {' AND '.join(conditions)}
+        ORDER BY invoices.issue_date DESC, invoices.id DESC
         """,
-        (current_user["id"],),
+        parameters,
     ).fetchall()
     return [serialize_invoice(row) for row in rows]
 
