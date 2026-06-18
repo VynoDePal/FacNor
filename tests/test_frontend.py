@@ -25,6 +25,26 @@ def test_frontend_uses_configurable_api_url_and_auth_endpoints():
     assert "Tableau de bord" in app_source
 
 
+def test_frontend_exposes_authenticated_client_crud_interface():
+    api_source = Path("frontend/src/api.ts").read_text(encoding="utf-8")
+    app_source = Path("frontend/src/main.tsx").read_text(encoding="utf-8")
+
+    assert "Authorization: `Bearer ${token}`" in api_source
+    assert "listClients" in api_source
+    assert "createClient" in api_source
+    assert "updateClient" in api_source
+    assert "deleteClient" in api_source
+    assert "'/clients'" in api_source
+    assert "`/clients/${clientId}`" in api_source
+
+    assert "Gestion des clients" in app_source
+    assert "Créer un client" in app_source
+    assert "Modifier le client" in app_source
+    assert "Supprimer" in app_source
+    assert "SIREN" in app_source
+    assert "TVA intracommunautaire" in app_source
+
+
 def test_api_allows_configured_frontend_origin(client):
     response = client.options(
         "/auth/login",
