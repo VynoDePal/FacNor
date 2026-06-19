@@ -120,6 +120,70 @@ def test_client_payload_validates_siren_format() -> None:
         assert response.status_code == 422
 
 
+
+def test_client_search_finds_by_name_or_siren_case_insensitively() -> None:
+    with client_api() as client:
+        headers = _auth_headers(client)
+        first = client.post(
+            "/api/clients",
+            json=BUSINESS_CLIENT_PAYLOAD | {"name": "Alpha Conseil", "siren": "111222333"},
+            headers=headers,
+        ).json()
+        second = client.post(
+            "/api/clients",
+            json=BUSINESS_CLIENT_PAYLOAD | {"name": "Beta Industrie", "siren": "444555666"},
+            headers=headers,
+        ).json()
+        client.post(
+            "/api/clients",
+            json=BUSINESS_CLIENT_PAYLOAD | {"name": "Gamma Services", "siren": "777888999"},
+            headers=headers,
+        )
+
+        name_response = client.get("/api/clients/search", params={"q": "alpha"}, headers=headers)
+        siren_response = client.get("/api/clients/search", params={"q": "444555666"}, headers=headers)
+
+        assert name_response.status_code == 200
+        assert [item["id"] for item in name_response.json()] == [first["id"]]
+        assert siren_response.status_code == 200
+        assert [item["id"] for item in siren_response.json()] == [second["id"]]
+
+
+def test_client_search_is_limited_and_isolated_by_authenticated_user() -> None:
+    with client_api() as client:
+        first_headers = _auth_headers(client, email="first-search@example.com")
+        second_headers = _auth_headers(client, email="second-search@example.com")
+        for index in range(15):
+            client.post(
+                "/api/clients",
+                json=BUSINESS_CLIENT_PAYLOAD | {"name": f"Shared Client {index:02d}", "siren": f"1234567{index:02d}"},
+                headers=first_headers,
+            )
+        client.post(
+            "/api/clients",
+            json=BUSINESS_CLIENT_PAYLOAD | {"name": "Shared Other User", "siren": "999999999"},
+            headers=second_headers,
+        )
+
+        response = client.get("/api/clients/search", params={"q": "shared", "limit": 5}, headers=first_headers)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 5
+        assert all(item["name"].startswith("Shared Client") for item in body)
+
+
+def test_client_search_requires_authentication_and_non_empty_query() -> None:
+    with client_api() as client:
+        headers = _auth_headers(client)
+
+        unauthenticated_response = client.get("/api/clients/search", params={"q": "client"})
+        empty_query_response = client.get("/api/clients/search", params={"q": "   "}, headers=headers)
+
+        assert unauthenticated_response.status_code == 401
+        assert empty_query_response.status_code == 422
+
+
 class client_api:
     def __enter__(self) -> TestClient:
         engine = create_engine(
