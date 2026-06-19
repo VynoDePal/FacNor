@@ -212,6 +212,7 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
+  const [exportingInvoiceId, setExportingInvoiceId] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [invoiceMessage, setInvoiceMessage] = useState('');
   const [invoiceSearch, setInvoiceSearch] = useState('');
@@ -361,6 +362,24 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     }
   }
 
+  async function handleInvoicePdfExport(invoice: Invoice) {
+    setInvoiceError('');
+    setInvoiceMessage('');
+    setExportingInvoiceId(invoice.id);
+
+    try {
+      const response = await requestInvoices(`/${invoice.id}/pdf`, { headers: {} });
+      if (!response.ok) throw new Error(await apiErrorMessage(response, 'Impossible d’exporter cette facture.'));
+      const pdfBlob = await response.blob();
+      downloadBlob(pdfBlob, invoicePdfFilename(response, invoice));
+      setInvoiceMessage(`Export PDF de la facture ${invoice.number} téléchargé.`);
+    } catch (exportError) {
+      setInvoiceError(exportError instanceof Error ? exportError.message : 'Une erreur inattendue est survenue.');
+    } finally {
+      setExportingInvoiceId(null);
+    }
+  }
+
   function updateInvoiceLine(lineId: string, field: keyof Omit<InvoiceLineFormState, 'id'>, value: string) {
     setInvoiceForm((currentForm) => ({
       ...currentForm,
@@ -501,7 +520,17 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
                         </div>
                       </dl>
                     </div>
-                    <strong>{formatCurrency(Number(invoice.total_including_tax))}</strong>
+                    <div className="invoice-card-actions">
+                      <strong>{formatCurrency(Number(invoice.total_including_tax))}</strong>
+                      <button
+                        className="secondary-button"
+                        disabled={exportingInvoiceId === invoice.id}
+                        onClick={() => void handleInvoicePdfExport(invoice)}
+                        type="button"
+                      >
+                        {exportingInvoiceId === invoice.id ? 'Export…' : 'Exporter PDF'}
+                      </button>
+                    </div>
                   </article>
                 );
               })}
@@ -716,6 +745,23 @@ async function apiErrorMessage(response: Response, fallback: string) {
   } catch {
     return fallback;
   }
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function invoicePdfFilename(response: Response, invoice: Invoice) {
+  const contentDisposition = response.headers.get('content-disposition');
+  const headerFilename = contentDisposition?.match(/filename="?([^";]+)"?/i)?.[1];
+  return headerFilename ?? `invoice-${invoice.number}.pdf`;
 }
 
 function filterInvoices(invoices: Invoice[], clients: Client[], search: string) {
