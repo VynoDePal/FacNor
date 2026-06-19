@@ -6,4 +6,4 @@
 - Invoice numbering lives in `backend/app/invoice_numbering.py`; use `generate_invoice_number(db, user_id)` inside the same transaction as invoice creation so rollbacks do not create sequence gaps.
 - Authentication is implemented in `backend/app/auth.py` using PBKDF2 password hashes and signed Bearer tokens; protected endpoints should depend on `get_current_user`.
 - Auth routes live in `backend/app/main.py`: `POST /api/auth/register`, `POST /api/auth/login`, and protected `GET /api/auth/me`; invoice creation is `POST /api/invoices`.
-
+- Client CRUD API is implemented in `backend/app/main.py` with protected `/api/clients` endpoints (`POST`, `GET` list/detail, `PUT`, `DELETE`), using `get_current_user` and `user_id` ownership isolation.
