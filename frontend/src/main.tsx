@@ -29,6 +29,31 @@ type Client = {
   address: string;
 };
 
+type Invoice = {
+  id: number;
+  number: string;
+  issue_date: string;
+  due_date: string | null;
+  status: string;
+  client_id: number;
+  total_including_tax: string;
+};
+
+type InvoiceLineFormState = {
+  id: string;
+  description: string;
+  quantity: string;
+  unit_price_excluding_tax: string;
+  vat_rate: string;
+};
+
+type InvoiceFormState = {
+  client_id: string;
+  issue_date: string;
+  due_date: string;
+  items: InvoiceLineFormState[];
+};
+
 type ClientFormState = {
   name: string;
   email: string;
@@ -49,6 +74,25 @@ const EMPTY_CLIENT_FORM: ClientFormState = {
   vat_number: '',
   address: '',
 };
+
+function newInvoiceLine(): InvoiceLineFormState {
+  return {
+    id: crypto.randomUUID(),
+    description: '',
+    quantity: '1',
+    unit_price_excluding_tax: '',
+    vat_rate: '20',
+  };
+}
+
+function emptyInvoiceForm(): InvoiceFormState {
+  return {
+    client_id: '',
+    issue_date: new Date().toISOString().slice(0, 10),
+    due_date: '',
+    items: [newInvoiceLine()],
+  };
+}
 
 function App() {
   const [user, setUser] = useState<AuthUser | null>(() => readStoredUser());
@@ -161,25 +205,31 @@ function App() {
 
 function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const [clients, setClients] = useState<Client[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [form, setForm] = useState<ClientFormState>(EMPTY_CLIENT_FORM);
+  const [invoiceForm, setInvoiceForm] = useState<InvoiceFormState>(() => emptyInvoiceForm());
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingInvoice, setIsSavingInvoice] = useState(false);
   const [message, setMessage] = useState('');
+  const [invoiceMessage, setInvoiceMessage] = useState('');
   const [error, setError] = useState('');
+  const [invoiceError, setInvoiceError] = useState('');
 
   const editingClient = useMemo(
     () => clients.find((client) => client.id === editingClientId) ?? null,
     [clients, editingClientId],
   );
+  const invoiceTotals = useMemo(() => calculateInvoiceTotals(invoiceForm.items), [invoiceForm.items]);
 
   useEffect(() => {
-    void loadClients();
+    void loadDashboardData();
   }, []);
 
-  async function requestClients(path = '', options: RequestInit = {}) {
+  async function requestApi(path: string, options: RequestInit = {}) {
     const token = localStorage.getItem(AUTH_TOKEN_KEY);
-    const response = await fetch(`/api/clients${path}`, {
+    const response = await fetch(path, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -194,6 +244,43 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     }
 
     return response;
+  }
+
+  async function requestClients(path = '', options: RequestInit = {}) {
+    return requestApi(`/api/clients${path}`, options);
+  }
+
+  async function requestInvoices(path = '', options: RequestInit = {}) {
+    return requestApi(`/api/invoices${path}`, options);
+  }
+
+  async function loadDashboardData() {
+    setIsLoading(true);
+    setError('');
+    setInvoiceError('');
+
+    try {
+      const [clientsResponse, invoicesResponse] = await Promise.all([requestClients(), requestInvoices()]);
+      if (!clientsResponse.ok) throw new Error('Impossible de charger les clients.');
+      if (!invoicesResponse.ok) throw new Error('Impossible de charger les factures.');
+      setClients((await clientsResponse.json()) as Client[]);
+      setInvoices((await invoicesResponse.json()) as Invoice[]);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Une erreur inattendue est survenue.');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function loadInvoices() {
+    setInvoiceError('');
+    try {
+      const response = await requestInvoices();
+      if (!response.ok) throw new Error('Impossible de charger les factures.');
+      setInvoices((await response.json()) as Invoice[]);
+    } catch (loadError) {
+      setInvoiceError(loadError instanceof Error ? loadError.message : 'Une erreur inattendue est survenue.');
+    }
   }
 
   async function loadClients() {
@@ -227,7 +314,7 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
       });
 
       if (!response.ok) {
-        throw new Error(await clientErrorMessage(response));
+        throw new Error(await apiErrorMessage(response, 'Impossible d’enregistrer ce client.'));
       }
 
       const savedClient = (await response.json()) as Client;
@@ -244,6 +331,47 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     } finally {
       setIsSaving(false);
     }
+  }
+
+  async function handleInvoiceSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setInvoiceError('');
+    setInvoiceMessage('');
+    setIsSavingInvoice(true);
+
+    try {
+      const response = await requestInvoices('', {
+        method: 'POST',
+        body: JSON.stringify(toInvoicePayload(invoiceForm)),
+      });
+      if (!response.ok) throw new Error(await apiErrorMessage(response, 'Impossible de créer cette facture.'));
+      const savedInvoice = (await response.json()) as Invoice;
+      setInvoices((currentInvoices) => [savedInvoice, ...currentInvoices]);
+      setInvoiceForm(emptyInvoiceForm());
+      setInvoiceMessage(`Facture ${savedInvoice.number} créée avec succès.`);
+    } catch (saveError) {
+      setInvoiceError(saveError instanceof Error ? saveError.message : 'Une erreur inattendue est survenue.');
+    } finally {
+      setIsSavingInvoice(false);
+    }
+  }
+
+  function updateInvoiceLine(lineId: string, field: keyof Omit<InvoiceLineFormState, 'id'>, value: string) {
+    setInvoiceForm((currentForm) => ({
+      ...currentForm,
+      items: currentForm.items.map((item) => (item.id === lineId ? { ...item, [field]: value } : item)),
+    }));
+  }
+
+  function addInvoiceLine() {
+    setInvoiceForm((currentForm) => ({ ...currentForm, items: [...currentForm.items, newInvoiceLine()] }));
+  }
+
+  function removeInvoiceLine(lineId: string) {
+    setInvoiceForm((currentForm) => ({
+      ...currentForm,
+      items: currentForm.items.length === 1 ? currentForm.items : currentForm.items.filter((item) => item.id !== lineId),
+    }));
   }
 
   function startEditing(client: Client) {
@@ -271,7 +399,7 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
         <div>
           <p className="eyebrow">Tableau de bord</p>
           <h1>Bienvenue, {user.company_name}</h1>
-          <p className="lead">Créez et modifiez vos fiches clients B2B ou B2C depuis votre espace sécurisé.</p>
+          <p className="lead">Créez vos factures, suivez les totaux en direct et gérez vos fiches clients.</p>
         </div>
         <button className="secondary-button" onClick={onLogout} type="button">
           Se déconnecter
@@ -284,8 +412,8 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
           <strong>{user.email}</strong>
         </article>
         <article className="summary-card">
-          <span className="summary-label">SIREN</span>
-          <strong>{user.siren ?? 'Non renseigné'}</strong>
+          <span className="summary-label">Factures</span>
+          <strong>{invoices.length}</strong>
         </article>
         <article className="summary-card">
           <span className="summary-label">Clients</span>
@@ -293,6 +421,33 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
         </article>
       </section>
 
+
+      <section className="invoice-layout" aria-labelledby="invoice-title">
+        <div className="invoice-form-card">
+          <p className="eyebrow">Création de facture</p>
+          <h2 id="invoice-title">Nouvelle facture</h2>
+          <p className="form-help">Ajoutez des lignes dynamiquement et visualisez les totaux HT, TVA et TTC en direct.</p>
+          <form className="invoice-form" onSubmit={handleInvoiceSubmit}>
+            <div className="form-row">
+              <label>Client facturé<select required value={invoiceForm.client_id} onChange={(event) => setInvoiceForm({ ...invoiceForm, client_id: event.target.value })}><option value="">Sélectionner un client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
+              <label>Date d’émission<input type="date" value={invoiceForm.issue_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, issue_date: event.target.value })} /></label>
+              <label>Date d’échéance<input type="date" value={invoiceForm.due_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, due_date: event.target.value })} /></label>
+            </div>
+            <div className="invoice-lines">
+              {invoiceForm.items.map((item, index) => {
+                const lineTotal = calculateInvoiceTotals([item]).total_including_tax;
+                return <fieldset className="invoice-line" key={item.id}><legend>Ligne {index + 1}</legend><label className="line-description">Description<input required placeholder="Ex. Prestation de conseil" value={item.description} onChange={(event) => updateInvoiceLine(item.id, 'description', event.target.value)} /></label><label>Qté<input min="0.01" required step="0.01" type="number" value={item.quantity} onChange={(event) => updateInvoiceLine(item.id, 'quantity', event.target.value)} /></label><label>Prix HT<input min="0" required step="0.01" type="number" value={item.unit_price_excluding_tax} onChange={(event) => updateInvoiceLine(item.id, 'unit_price_excluding_tax', event.target.value)} /></label><label>TVA %<input min="0" required step="0.01" type="number" value={item.vat_rate} onChange={(event) => updateInvoiceLine(item.id, 'vat_rate', event.target.value)} /></label><div className="line-total"><span>Total TTC</span><strong>{formatCurrency(lineTotal)}</strong></div><button className="secondary-button remove-line-button" disabled={invoiceForm.items.length === 1} onClick={() => removeInvoiceLine(item.id)} type="button">Retirer</button></fieldset>;
+              })}
+            </div>
+            <button className="secondary-button add-line-button" onClick={addInvoiceLine} type="button">Ajouter une ligne</button>
+            <div className="invoice-totals" aria-live="polite"><div><span>Total HT</span><strong>{formatCurrency(invoiceTotals.total_excluding_tax)}</strong></div><div><span>TVA</span><strong>{formatCurrency(invoiceTotals.total_tax)}</strong></div><div className="grand-total"><span>Total TTC</span><strong>{formatCurrency(invoiceTotals.total_including_tax)}</strong></div></div>
+            {invoiceError ? <p className="form-error" role="alert">{invoiceError}</p> : null}
+            {invoiceMessage ? <p className="form-success" role="status">{invoiceMessage}</p> : null}
+            <div className="form-actions"><button className="primary-button" disabled={isSavingInvoice || clients.length === 0} type="submit">{isSavingInvoice ? 'Création…' : 'Créer la facture'}</button>{clients.length === 0 ? <span className="inline-help">Créez d’abord un client.</span> : null}</div>
+          </form>
+        </div>
+        <div className="invoices-list-card"><div className="list-header"><div><p className="eyebrow">Historique</p><h2>Dernières factures</h2></div><button className="secondary-button" onClick={loadInvoices} type="button">Actualiser</button></div>{!isLoading && invoices.length === 0 ? <p className="empty-state">Aucune facture pour le moment.</p> : null}{invoices.length > 0 ? <div className="invoices-list">{invoices.slice(0, 5).map((invoice) => <article className="invoice-card" key={invoice.id}><div><span className="client-type">{invoice.status}</span><h3>{invoice.number}</h3><p>{clientNameForInvoice(invoice.client_id, clients)} · {formatDate(invoice.issue_date)}</p></div><strong>{formatCurrency(Number(invoice.total_including_tax))}</strong></article>)}</div> : null}</div>
+      </section>
       <section className="clients-layout" aria-labelledby="clients-title">
         <div className="client-form-card">
           <p className="eyebrow">Gestion des clients</p>
@@ -453,17 +608,65 @@ function optionalString(value: string) {
   return trimmedValue.length > 0 ? trimmedValue : null;
 }
 
-async function clientErrorMessage(response: Response) {
-  if (response.status === 422) {
-    return 'Certains champs sont invalides. Vérifiez le format de l’e-mail et du SIREN.';
-  }
+function toInvoicePayload(form: InvoiceFormState) {
+  return {
+    client_id: Number(form.client_id),
+    issue_date: optionalString(form.issue_date),
+    due_date: optionalString(form.due_date),
+    items: form.items.map((item) => ({
+      description: item.description.trim(),
+      quantity: decimalString(item.quantity),
+      unit_price_excluding_tax: decimalString(item.unit_price_excluding_tax),
+      vat_rate: decimalString(item.vat_rate),
+    })),
+  };
+}
 
+function calculateInvoiceTotals(items: InvoiceLineFormState[]) {
+  return items.reduce((totals, item) => {
+    const totalExcludingTax = roundMoney(parseInvoiceNumber(item.quantity) * parseInvoiceNumber(item.unit_price_excluding_tax));
+    const totalTax = roundMoney(totalExcludingTax * (parseInvoiceNumber(item.vat_rate) / 100));
+    return {
+      total_excluding_tax: roundMoney(totals.total_excluding_tax + totalExcludingTax),
+      total_tax: roundMoney(totals.total_tax + totalTax),
+      total_including_tax: roundMoney(totals.total_including_tax + totalExcludingTax + totalTax),
+    };
+  }, { total_excluding_tax: 0, total_tax: 0, total_including_tax: 0 });
+}
+
+function parseInvoiceNumber(value: string) {
+  const parsedValue = Number(value.replace(',', '.'));
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 0;
+}
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function decimalString(value: string) {
+  return (Number(value.replace(',', '.')) || 0).toFixed(2);
+}
+
+async function apiErrorMessage(response: Response, fallback: string) {
+  if (response.status === 422) return 'Certains champs sont invalides. Vérifiez les formats et les montants saisis.';
   try {
     const data = (await response.json()) as { detail?: string };
-    return data.detail ?? 'Impossible d’enregistrer ce client.';
+    return data.detail ?? fallback;
   } catch {
-    return 'Impossible d’enregistrer ce client.';
+    return fallback;
   }
+}
+
+function clientNameForInvoice(clientId: number, clients: Client[]) {
+  return clients.find((client) => client.id === clientId)?.name ?? 'Client supprimé';
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat('fr-FR').format(new Date(value));
 }
 
 function readStoredUser(): AuthUser | null {
