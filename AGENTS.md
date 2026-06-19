@@ -15,3 +15,5 @@
 - Backend tests may need `PYTHONPATH=/workspace pytest backend/tests` so imports like `backend.app...` resolve reliably in this environment.
 
 - Frontend React entrypoint is `frontend/src/main.tsx`; auth state uses localStorage keys `facnor.authToken` and `facnor.authUser`, and protected API calls send `Authorization: Bearer <token>`.
+- Frontend invoice list exports PDFs from `GET /api/invoices/{id}/pdf` using an authenticated fetch, Blob download, and the `Content-Disposition` filename when present.
+
