@@ -435,3 +435,207 @@ textarea {
     flex-direction: column;
   }
 }
+
+.invoice-form-card,
+.invoices-list-card {
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 28px;
+  background: #ffffff;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.1);
+  padding: 2rem;
+}
+
+.invoice-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.8fr);
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  align-items: start;
+}
+
+.invoice-form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.invoice-form label {
+  display: grid;
+  gap: 0.5rem;
+  color: #334155;
+  font-weight: 700;
+}
+
+.invoice-form input,
+.invoice-form select {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 16px;
+  padding: 0.9rem 1rem;
+  color: #0f172a;
+  background: #f8fafc;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.invoice-form input:focus,
+.invoice-form select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.14);
+}
+
+.invoice-form .form-row {
+  grid-template-columns: minmax(220px, 1.6fr) repeat(2, minmax(150px, 1fr));
+}
+
+.invoice-lines {
+  display: grid;
+  gap: 1rem;
+}
+
+.invoice-line {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.7fr) repeat(3, minmax(110px, 0.7fr)) minmax(120px, 0.7fr) auto;
+  gap: 1rem;
+  align-items: end;
+  margin: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 22px;
+  padding: 1rem;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.invoice-line legend {
+  padding: 0 0.5rem;
+  color: #2563eb;
+  font-size: 0.85rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.line-description {
+  min-width: 0;
+}
+
+.line-total {
+  display: grid;
+  gap: 0.35rem;
+  border-radius: 16px;
+  padding: 0.85rem 1rem;
+  background: #eff6ff;
+}
+
+.line-total span,
+.invoice-totals span,
+.inline-help {
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.line-total strong {
+  color: #1d4ed8;
+}
+
+.remove-line-button {
+  align-self: end;
+  white-space: nowrap;
+}
+
+.add-line-button {
+  justify-self: start;
+}
+
+.invoice-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  border-radius: 22px;
+  padding: 1rem;
+  background: #f8fafc;
+}
+
+.invoice-totals div {
+  display: grid;
+  gap: 0.4rem;
+  border-radius: 16px;
+  padding: 1rem;
+  background: #ffffff;
+}
+
+.invoice-totals strong {
+  color: #0f172a;
+  font-size: 1.25rem;
+}
+
+.invoice-totals .grand-total {
+  background: #dbeafe;
+}
+
+.invoice-totals .grand-total strong {
+  color: #1d4ed8;
+  font-size: 1.45rem;
+}
+
+.invoices-list {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.invoice-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 22px;
+  padding: 1.25rem;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.invoice-card h3 {
+  margin: 0.5rem 0;
+  color: #0f172a;
+  font-size: 1.25rem;
+}
+
+.invoice-card p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.invoice-card > strong {
+  color: #1d4ed8;
+  white-space: nowrap;
+}
+
+@media (max-width: 1200px) {
+  .invoice-layout,
+  .invoice-line,
+  .invoice-form .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .remove-line-button {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 640px) {
+  .invoice-form-card,
+  .invoices-list-card {
+    padding: 1.5rem;
+    border-radius: 22px;
+  }
+
+  .invoice-totals {
+    grid-template-columns: 1fr;
+  }
+
+  .invoice-card {
+    flex-direction: column;
+  }
+}
