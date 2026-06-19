@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -14,6 +14,7 @@ from backend.app.database import get_db, init_db
 from backend.app.invoice_calculation import calculate_invoice
 from backend.app.invoice_numbering import generate_invoice_number
 from backend.app.models import Client, Invoice, InvoiceItem, User
+from backend.app.pdf_export import generate_invoice_pdf
 
 
 class UserCreate(BaseModel):
@@ -302,6 +303,21 @@ def list_invoices(
     )
 
 
+@app.get("/api/invoices/{invoice_id}/pdf", tags=["invoices"])
+def export_invoice_pdf(
+    invoice_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    invoice = _get_owned_invoice_for_pdf(db, invoice_id, current_user.id)
+    pdf = generate_invoice_pdf(invoice)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="invoice-{invoice.number}.pdf"'},
+    )
+
+
 @app.get("/api/invoices/{invoice_id}", response_model=InvoiceRead, tags=["invoices"])
 def read_invoice(
     invoice_id: int,
@@ -351,36 +367,62 @@ def _get_owned_client(db: Session, client_id: int, user_id: int) -> Client:
 
 
 def _get_owned_invoice(db: Session, invoice_id: int, user_id: int) -> Invoice:
-    invoice = db.scalar(
-        select(Invoice)
-        .where(Invoice.id == invoice_id, Invoice.user_id == user_id)
-        .options(selectinload(Invoice.items))
+    return _find_owned_invoice(db, invoice_id, user_id, selectinload(Invoice.items))
+
+
+def _get_owned_invoice_for_pdf(db: Session, invoice_id: int, user_id: int) -> Invoice:
+    return _find_owned_invoice(
+        db,
+        invoice_id,
+        user_id,
+        selectinload(Invoice.items),
+        selectinload(Invoice.user),
+        selectinload(Invoice.client),
     )
+
+
+def _find_owned_invoice(db: Session, invoice_id: int, user_id: int, *load_options) -> Invoice:
+    statement = select(Invoice).where(Invoice.id == invoice_id, Invoice.user_id == user_id)
+    if load_options:
+        statement = statement.options(*load_options)
+    invoice = db.scalar(statement)
     if invoice is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
     return invoice
 
 
 def _replace_invoice_items(invoice: Invoice, items: list[InvoiceItemCreate]) -> None:
-    calculated_invoice = calculate_invoice(
-        [(item.quantity, item.unit_price_excluding_tax, item.vat_rate) for item in items]
-    )
+    calculated_invoice = calculate_invoice(_calculation_inputs(items))
     invoice.items.clear()
-    for position, (item_payload, calculated_item) in enumerate(zip(items, calculated_invoice.items), start=1):
-        invoice.items.append(
-            InvoiceItem(
-                position=position,
-                description=item_payload.description,
-                quantity=item_payload.quantity,
-                unit_price_excluding_tax=item_payload.unit_price_excluding_tax,
-                vat_rate=item_payload.vat_rate,
-                total_excluding_tax=calculated_item.total_excluding_tax,
-                total_tax=calculated_item.total_tax,
-                total_including_tax=calculated_item.total_including_tax,
-            )
-        )
+    invoice.items.extend(_build_invoice_items(items, calculated_invoice.items))
+    _apply_invoice_totals(invoice, calculated_invoice.totals)
 
-    invoice.total_excluding_tax = calculated_invoice.totals.total_excluding_tax
-    invoice.total_tax = calculated_invoice.totals.total_tax
-    invoice.total_including_tax = calculated_invoice.totals.total_including_tax
 
+def _calculation_inputs(items: list[InvoiceItemCreate]) -> list[tuple[Decimal, Decimal, Decimal]]:
+    return [(item.quantity, item.unit_price_excluding_tax, item.vat_rate) for item in items]
+
+
+def _build_invoice_items(items: list[InvoiceItemCreate], calculated_items) -> list[InvoiceItem]:
+    return [
+        _build_invoice_item(position, item_payload, calculated_item)
+        for position, (item_payload, calculated_item) in enumerate(zip(items, calculated_items), start=1)
+    ]
+
+
+def _build_invoice_item(position: int, item_payload: InvoiceItemCreate, calculated_item) -> InvoiceItem:
+    return InvoiceItem(
+        position=position,
+        description=item_payload.description,
+        quantity=item_payload.quantity,
+        unit_price_excluding_tax=item_payload.unit_price_excluding_tax,
+        vat_rate=item_payload.vat_rate,
+        total_excluding_tax=calculated_item.total_excluding_tax,
+        total_tax=calculated_item.total_tax,
+        total_including_tax=calculated_item.total_including_tax,
+    )
+
+
+def _apply_invoice_totals(invoice: Invoice, totals) -> None:
+    invoice.total_excluding_tax = totals.total_excluding_tax
+    invoice.total_tax = totals.total_tax
+    invoice.total_including_tax = totals.total_including_tax
