@@ -214,6 +214,7 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
   const [message, setMessage] = useState('');
   const [invoiceMessage, setInvoiceMessage] = useState('');
+  const [invoiceSearch, setInvoiceSearch] = useState('');
   const [error, setError] = useState('');
   const [invoiceError, setInvoiceError] = useState('');
 
@@ -222,6 +223,10 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     [clients, editingClientId],
   );
   const invoiceTotals = useMemo(() => calculateInvoiceTotals(invoiceForm.items), [invoiceForm.items]);
+  const filteredInvoices = useMemo(
+    () => filterInvoices(invoices, clients, invoiceSearch),
+    [clients, invoices, invoiceSearch],
+  );
 
   useEffect(() => {
     void loadDashboardData();
@@ -446,7 +451,63 @@ function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void })
             <div className="form-actions"><button className="primary-button" disabled={isSavingInvoice || clients.length === 0} type="submit">{isSavingInvoice ? 'Création…' : 'Créer la facture'}</button>{clients.length === 0 ? <span className="inline-help">Créez d’abord un client.</span> : null}</div>
           </form>
         </div>
-        <div className="invoices-list-card"><div className="list-header"><div><p className="eyebrow">Historique</p><h2>Dernières factures</h2></div><button className="secondary-button" onClick={loadInvoices} type="button">Actualiser</button></div>{!isLoading && invoices.length === 0 ? <p className="empty-state">Aucune facture pour le moment.</p> : null}{invoices.length > 0 ? <div className="invoices-list">{invoices.slice(0, 5).map((invoice) => <article className="invoice-card" key={invoice.id}><div><span className="client-type">{invoice.status}</span><h3>{invoice.number}</h3><p>{clientNameForInvoice(invoice.client_id, clients)} · {formatDate(invoice.issue_date)}</p></div><strong>{formatCurrency(Number(invoice.total_including_tax))}</strong></article>)}</div> : null}</div>
+        <div className="invoices-list-card">
+          <div className="list-header">
+            <div>
+              <p className="eyebrow">Historique</p>
+              <h2>Liste des factures</h2>
+            </div>
+            <button className="secondary-button" onClick={loadInvoices} type="button">
+              Actualiser
+            </button>
+          </div>
+
+          <label className="invoice-search">
+            Rechercher par client ou SIREN
+            <input
+              onChange={(event) => setInvoiceSearch(event.target.value)}
+              placeholder="Ex. Dupont ou 123456789"
+              type="search"
+              value={invoiceSearch}
+            />
+          </label>
+
+          {isLoading ? <p className="empty-state">Chargement des factures…</p> : null}
+          {!isLoading && invoices.length === 0 ? <p className="empty-state">Aucune facture pour le moment.</p> : null}
+          {!isLoading && invoices.length > 0 && filteredInvoices.length === 0 ? (
+            <p className="empty-state">Aucune facture ne correspond à cette recherche.</p>
+          ) : null}
+          {!isLoading && filteredInvoices.length > 0 ? (
+            <div className="invoices-list" aria-live="polite">
+              {filteredInvoices.map((invoice) => {
+                const client = clientForInvoice(invoice.client_id, clients);
+                return (
+                  <article className="invoice-card" key={invoice.id}>
+                    <div>
+                      <div className="invoice-card-meta">
+                        <span className="client-type">{invoice.status}</span>
+                        <span>{formatDate(invoice.issue_date)}</span>
+                      </div>
+                      <h3>{invoice.number}</h3>
+                      <p>{client?.name ?? 'Client supprimé'}</p>
+                      <dl className="invoice-client-details">
+                        <div>
+                          <dt>SIREN</dt>
+                          <dd>{client?.siren ?? 'Non renseigné'}</dd>
+                        </div>
+                        <div>
+                          <dt>Échéance</dt>
+                          <dd>{invoice.due_date ? formatDate(invoice.due_date) : 'Non renseignée'}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                    <strong>{formatCurrency(Number(invoice.total_including_tax))}</strong>
+                  </article>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
       </section>
       <section className="clients-layout" aria-labelledby="clients-title">
         <div className="client-form-card">
@@ -657,8 +718,29 @@ async function apiErrorMessage(response: Response, fallback: string) {
   }
 }
 
-function clientNameForInvoice(clientId: number, clients: Client[]) {
-  return clients.find((client) => client.id === clientId)?.name ?? 'Client supprimé';
+function filterInvoices(invoices: Invoice[], clients: Client[], search: string) {
+  const normalizedSearch = normalizeSearch(search);
+  if (!normalizedSearch) {
+    return invoices;
+  }
+
+  return invoices.filter((invoice) => {
+    const client = clientForInvoice(invoice.client_id, clients);
+    const searchableText = normalizeSearch(`${client?.name ?? ''} ${client?.siren ?? ''}`);
+    return searchableText.includes(normalizedSearch);
+  });
+}
+
+function clientForInvoice(clientId: number, clients: Client[]) {
+  return clients.find((client) => client.id === clientId) ?? null;
+}
+
+function normalizeSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 }
 
 function formatCurrency(value: number) {

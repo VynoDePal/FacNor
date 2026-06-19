@@ -639,3 +639,63 @@ textarea {
     flex-direction: column;
   }
 }
+
+.invoice-search {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+  color: #334155;
+  font-weight: 700;
+}
+
+.invoice-search input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 16px;
+  padding: 0.9rem 1rem;
+  color: #0f172a;
+  background: #f8fafc;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.invoice-search input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.14);
+}
+
+.invoice-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.invoice-client-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+}
+
+.invoice-client-details dt {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.invoice-client-details dd {
+  margin: 0.2rem 0 0;
+  color: #0f172a;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .invoice-client-details {
+    grid-template-columns: 1fr;
+  }
+}
