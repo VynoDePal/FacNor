@@ -71,9 +71,15 @@ def test_create_invoice_endpoint_assigns_next_number_and_totals() -> None:
         second_invoice = second_response.json()
         assert first_invoice["number"] == "0001"
         assert second_invoice["number"] == "0002"
-        assert first_invoice["total_excluding_tax"] == "200.00"
-        assert first_invoice["total_tax"] == "40.00"
-        assert first_invoice["total_including_tax"] == "240.00"
+        assert first_invoice["items"][0]["total_excluding_tax"] == "200.00"
+        assert first_invoice["items"][0]["total_tax"] == "40.00"
+        assert first_invoice["items"][0]["total_including_tax"] == "240.00"
+        assert first_invoice["items"][1]["total_excluding_tax"] == "59.97"
+        assert first_invoice["items"][1]["total_tax"] == "3.30"
+        assert first_invoice["items"][1]["total_including_tax"] == "63.27"
+        assert first_invoice["total_excluding_tax"] == "259.97"
+        assert first_invoice["total_tax"] == "43.30"
+        assert first_invoice["total_including_tax"] == "303.27"
 
 
 def test_create_invoice_requires_authentication() -> None:
@@ -119,7 +125,13 @@ def _invoice_payload(client_id: int) -> dict[str, object]:
                 "quantity": "2.00",
                 "unit_price_excluding_tax": "100.00",
                 "vat_rate": "20.00",
-            }
+            },
+            {
+                "description": "Frais complémentaires",
+                "quantity": "3.00",
+                "unit_price_excluding_tax": "19.99",
+                "vat_rate": "5.50",
+            },
         ],
     }
 
