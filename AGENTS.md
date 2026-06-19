@@ -10,6 +10,8 @@
 - Invoice CRUD API is implemented in `backend/app/main.py` with protected `/api/invoices` endpoints (`POST`, `GET` list/detail, `PUT`, `DELETE`), eager-loading lines and recalculating totals through shared helpers.
 - Invoice monetary calculations are centralized in `backend/app/invoice_calculation.py`; `calculate_invoice()` returns per-line totals and invoice totals rounded with `Decimal`/`ROUND_HALF_UP`.
 
+- Invoice PDF export lives in `backend/app/pdf_export.py` and is dependency-free: it builds a minimal paginated PDF with WinAnsi/Latin-1-safe text normalization and escaping.
+
 - Backend tests may need `PYTHONPATH=/workspace pytest backend/tests` so imports like `backend.app...` resolve reliably in this environment.
 
 - Frontend React entrypoint is `frontend/src/main.tsx`; auth state uses localStorage keys `facnor.authToken` and `facnor.authUser`, and protected API calls send `Authorization: Bearer <token>`.
