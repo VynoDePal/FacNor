@@ -42,6 +42,28 @@ def test_register_login_and_read_current_user() -> None:
         assert me_response.json()["company_name"] == "FacNor SAS"
 
 
+def test_register_rejects_duplicate_email_case_insensitively() -> None:
+    with auth_client() as client:
+        first_response = client.post("/api/auth/register", json=PUBLIC_USER_PAYLOAD | {"email": "Owner@Example.com"})
+        duplicate_response = client.post("/api/auth/register", json=PUBLIC_USER_PAYLOAD | {"email": "owner@example.com"})
+
+        assert first_response.status_code == 201
+        assert duplicate_response.status_code == 409
+
+
+def test_protected_endpoint_rejects_tampered_token() -> None:
+    with auth_client() as client:
+        register_response = client.post("/api/auth/register", json=PUBLIC_USER_PAYLOAD)
+        token = register_response.json()["access_token"]
+        encoded_payload, signature = token.split(".", 1)
+        tampered_token = f"{encoded_payload[:-1]}x.{signature}"
+
+        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {tampered_token}"})
+
+        assert response.status_code == 401
+        assert response.headers["www-authenticate"] == "Bearer"
+
+
 def test_protected_endpoint_rejects_unauthenticated_user() -> None:
     with auth_client() as client:
         response = client.get("/api/auth/me")

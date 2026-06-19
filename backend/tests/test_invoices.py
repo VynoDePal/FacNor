@@ -151,6 +151,45 @@ def test_invoice_payload_requires_at_least_one_line() -> None:
         assert response.status_code == 422
 
 
+def test_invoice_update_rejects_client_owned_by_another_user() -> None:
+    with invoice_api() as client:
+        first_headers = _auth_headers(client, email="invoice-owner@example.com")
+        second_headers = _auth_headers(client, email="invoice-other@example.com")
+        invoice_client_id = _create_client(client, first_headers)
+        other_client_id = _create_client(client, second_headers)
+        created_invoice = client.post(
+            "/api/invoices",
+            json=INVOICE_PAYLOAD | {"client_id": invoice_client_id},
+            headers=first_headers,
+        ).json()
+
+        response = client.put(
+            f"/api/invoices/{created_invoice['id']}",
+            json={"client_id": other_client_id},
+            headers=first_headers,
+        )
+
+        assert response.status_code == 404
+
+
+def test_invoice_pdf_export_requires_owned_invoice() -> None:
+    with invoice_api() as client:
+        first_headers = _auth_headers(client, email="pdf-owner@example.com")
+        second_headers = _auth_headers(client, email="pdf-other@example.com")
+        client_id = _create_client(client, first_headers)
+        created_invoice = client.post(
+            "/api/invoices",
+            json=INVOICE_PAYLOAD | {"client_id": client_id},
+            headers=first_headers,
+        ).json()
+
+        unauthenticated_response = client.get(f"/api/invoices/{created_invoice['id']}/pdf")
+        other_user_response = client.get(f"/api/invoices/{created_invoice['id']}/pdf", headers=second_headers)
+
+        assert unauthenticated_response.status_code == 401
+        assert other_user_response.status_code == 404
+
+
 class invoice_api:
     def __enter__(self) -> TestClient:
         engine = create_engine(
