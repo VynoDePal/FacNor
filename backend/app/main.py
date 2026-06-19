@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.auth import create_access_token, get_current_user, hash_password, verify_password
 from backend.app.database import get_db, init_db
+from backend.app.invoice_calculation import calculate_invoice
 from backend.app.invoice_numbering import generate_invoice_number
 from backend.app.models import Client, Invoice, InvoiceItem, User
 
@@ -253,13 +254,10 @@ def create_invoice(
         due_date=payload.due_date,
     )
 
-    total_excluding_tax = Decimal("0.00")
-    total_tax = Decimal("0.00")
-    total_including_tax = Decimal("0.00")
-    for position, item_payload in enumerate(payload.items, start=1):
-        item_total_excluding_tax = _money(item_payload.quantity * item_payload.unit_price_excluding_tax)
-        item_total_tax = _money(item_total_excluding_tax * item_payload.vat_rate / Decimal("100"))
-        item_total_including_tax = _money(item_total_excluding_tax + item_total_tax)
+    calculated_invoice = calculate_invoice(
+        [(item.quantity, item.unit_price_excluding_tax, item.vat_rate) for item in payload.items]
+    )
+    for position, (item_payload, calculated_item) in enumerate(zip(payload.items, calculated_invoice.items), start=1):
         invoice.items.append(
             InvoiceItem(
                 position=position,
@@ -267,26 +265,19 @@ def create_invoice(
                 quantity=item_payload.quantity,
                 unit_price_excluding_tax=item_payload.unit_price_excluding_tax,
                 vat_rate=item_payload.vat_rate,
-                total_excluding_tax=item_total_excluding_tax,
-                total_tax=item_total_tax,
-                total_including_tax=item_total_including_tax,
+                total_excluding_tax=calculated_item.total_excluding_tax,
+                total_tax=calculated_item.total_tax,
+                total_including_tax=calculated_item.total_including_tax,
             )
         )
-        total_excluding_tax += item_total_excluding_tax
-        total_tax += item_total_tax
-        total_including_tax += item_total_including_tax
 
-    invoice.total_excluding_tax = _money(total_excluding_tax)
-    invoice.total_tax = _money(total_tax)
-    invoice.total_including_tax = _money(total_including_tax)
+    invoice.total_excluding_tax = calculated_invoice.totals.total_excluding_tax
+    invoice.total_tax = calculated_invoice.totals.total_tax
+    invoice.total_including_tax = calculated_invoice.totals.total_including_tax
     db.add(invoice)
     db.commit()
     db.refresh(invoice)
     return invoice
-
-
-def _money(value: Decimal) -> Decimal:
-    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def _get_owned_client(db: Session, client_id: int, user_id: int) -> Client:

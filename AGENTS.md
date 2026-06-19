@@ -7,3 +7,5 @@
 - Authentication is implemented in `backend/app/auth.py` using PBKDF2 password hashes and signed Bearer tokens; protected endpoints should depend on `get_current_user`.
 - Auth routes live in `backend/app/main.py`: `POST /api/auth/register`, `POST /api/auth/login`, and protected `GET /api/auth/me`; invoice creation is `POST /api/invoices`.
 - Client CRUD API is implemented in `backend/app/main.py` with protected `/api/clients` endpoints (`POST`, `GET` list/detail, `PUT`, `DELETE`), using `get_current_user` and `user_id` ownership isolation.
+- Invoice monetary calculations are centralized in `backend/app/invoice_calculation.py`; `calculate_invoice()` returns per-line totals and invoice totals rounded with `Decimal`/`ROUND_HALF_UP`.
+
