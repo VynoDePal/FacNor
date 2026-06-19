@@ -11,10 +11,13 @@ def test_database_schema_creates_required_tables_and_relationships() -> None:
 
     inspector = inspect(engine)
 
-    assert {"users", "clients", "invoices", "invoice_items"}.issubset(set(inspector.get_table_names()))
+    assert {"users", "clients", "invoices", "invoice_items", "invoice_sequences"}.issubset(
+        set(inspector.get_table_names())
+    )
     assert _foreign_keys(inspector, "clients") == {"user_id": "users"}
     assert _foreign_keys(inspector, "invoices") == {"user_id": "users", "client_id": "clients"}
     assert _foreign_keys(inspector, "invoice_items") == {"invoice_id": "invoices"}
+    assert _foreign_keys(inspector, "invoice_sequences") == {"user_id": "users"}
 
 
 def test_database_relationships_allow_invoice_with_items() -> None:
