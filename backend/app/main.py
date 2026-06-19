@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from fastapi import Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from backend.app.auth import create_access_token, get_current_user, hash_password, verify_password
 from backend.app.database import get_db, init_db
@@ -87,6 +87,14 @@ class InvoiceCreate(BaseModel):
     issue_date: date | None = None
     due_date: date | None = None
     items: list[InvoiceItemCreate] = Field(min_length=1)
+
+
+class InvoiceUpdate(BaseModel):
+    client_id: int | None = Field(default=None, gt=0)
+    issue_date: date | None = None
+    due_date: date | None = None
+    status: Literal["draft", "sent", "paid", "cancelled"] | None = None
+    items: list[InvoiceItemCreate] | None = Field(default=None, min_length=1)
 
 
 class InvoiceItemRead(BaseModel):
@@ -242,10 +250,7 @@ def create_invoice(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> Invoice:
-    client = db.get(Client, payload.client_id)
-    if client is None or client.user_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
-
+    client = _get_owned_client(db, payload.client_id, current_user.id)
     invoice = Invoice(
         user_id=current_user.id,
         client_id=client.id,
@@ -253,11 +258,92 @@ def create_invoice(
         issue_date=payload.issue_date or date.today(),
         due_date=payload.due_date,
     )
+    _replace_invoice_items(invoice, payload.items)
+    db.add(invoice)
+    db.commit()
+    return _get_owned_invoice(db, invoice.id, current_user.id)
 
-    calculated_invoice = calculate_invoice(
-        [(item.quantity, item.unit_price_excluding_tax, item.vat_rate) for item in payload.items]
+
+@app.get("/api/invoices", response_model=list[InvoiceRead], tags=["invoices"])
+def list_invoices(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> list[Invoice]:
+    return list(
+        db.scalars(
+            select(Invoice)
+            .where(Invoice.user_id == current_user.id)
+            .options(selectinload(Invoice.items))
+            .order_by(Invoice.issue_date.desc(), Invoice.id.desc())
+        )
     )
-    for position, (item_payload, calculated_item) in enumerate(zip(payload.items, calculated_invoice.items), start=1):
+
+
+@app.get("/api/invoices/{invoice_id}", response_model=InvoiceRead, tags=["invoices"])
+def read_invoice(
+    invoice_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Invoice:
+    return _get_owned_invoice(db, invoice_id, current_user.id)
+
+
+@app.put("/api/invoices/{invoice_id}", response_model=InvoiceRead, tags=["invoices"])
+def update_invoice(
+    invoice_id: int,
+    payload: InvoiceUpdate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Invoice:
+    invoice = _get_owned_invoice(db, invoice_id, current_user.id)
+    updates = payload.model_dump(exclude_unset=True)
+    if "client_id" in updates:
+        client = _get_owned_client(db, updates["client_id"], current_user.id)
+        invoice.client_id = client.id
+    for field in ("issue_date", "due_date", "status"):
+        if field in updates:
+            setattr(invoice, field, updates[field])
+    if "items" in updates:
+        _replace_invoice_items(invoice, payload.items or [])
+    db.commit()
+    return _get_owned_invoice(db, invoice.id, current_user.id)
+
+
+@app.delete("/api/invoices/{invoice_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["invoices"])
+def delete_invoice(
+    invoice_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    invoice = _get_owned_invoice(db, invoice_id, current_user.id)
+    db.delete(invoice)
+    db.commit()
+
+
+def _get_owned_client(db: Session, client_id: int, user_id: int) -> Client:
+    client = db.get(Client, client_id)
+    if client is None or client.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+    return client
+
+
+def _get_owned_invoice(db: Session, invoice_id: int, user_id: int) -> Invoice:
+    invoice = db.scalar(
+        select(Invoice)
+        .where(Invoice.id == invoice_id, Invoice.user_id == user_id)
+        .options(selectinload(Invoice.items))
+    )
+    if invoice is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    return invoice
+
+
+def _replace_invoice_items(invoice: Invoice, items: list[InvoiceItemCreate]) -> None:
+    calculated_invoice = calculate_invoice(
+        [(item.quantity, item.unit_price_excluding_tax, item.vat_rate) for item in items]
+    )
+    invoice.items.clear()
+    for position, (item_payload, calculated_item) in enumerate(zip(items, calculated_invoice.items), start=1):
         invoice.items.append(
             InvoiceItem(
                 position=position,
@@ -274,14 +360,4 @@ def create_invoice(
     invoice.total_excluding_tax = calculated_invoice.totals.total_excluding_tax
     invoice.total_tax = calculated_invoice.totals.total_tax
     invoice.total_including_tax = calculated_invoice.totals.total_including_tax
-    db.add(invoice)
-    db.commit()
-    db.refresh(invoice)
-    return invoice
 
-
-def _get_owned_client(db: Session, client_id: int, user_id: int) -> Client:
-    client = db.get(Client, client_id)
-    if client is None or client.user_id != user_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
-    return client
