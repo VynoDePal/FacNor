@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
@@ -44,6 +44,34 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserRead
+
+
+class ClientBase(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    email: str | None = Field(default=None, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=255)
+    client_type: Literal["business", "individual"]
+    siren: str | None = Field(default=None, pattern=r"^\d{9}$")
+    vat_number: str | None = Field(default=None, max_length=32)
+    address: str = Field(min_length=1)
+
+
+class ClientCreate(ClientBase):
+    pass
+
+
+class ClientUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    email: str | None = Field(default=None, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=255)
+    client_type: Literal["business", "individual"] | None = None
+    siren: str | None = Field(default=None, pattern=r"^\d{9}$")
+    vat_number: str | None = Field(default=None, max_length=32)
+    address: str | None = Field(default=None, min_length=1)
+
+
+class ClientRead(ClientBase):
+    id: int
+
+    model_config = {"from_attributes": True}
 
 
 class InvoiceItemCreate(BaseModel):
@@ -151,6 +179,62 @@ def read_current_user(current_user: Annotated[User, Depends(get_current_user)]) 
     return current_user
 
 
+@app.post("/api/clients", response_model=ClientRead, status_code=status.HTTP_201_CREATED, tags=["clients"])
+def create_client(
+    payload: ClientCreate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Client:
+    client = Client(user_id=current_user.id, **payload.model_dump())
+    db.add(client)
+    db.commit()
+    db.refresh(client)
+    return client
+
+
+@app.get("/api/clients", response_model=list[ClientRead], tags=["clients"])
+def list_clients(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> list[Client]:
+    return list(db.scalars(select(Client).where(Client.user_id == current_user.id).order_by(Client.name, Client.id)))
+
+
+@app.get("/api/clients/{client_id}", response_model=ClientRead, tags=["clients"])
+def read_client(
+    client_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Client:
+    return _get_owned_client(db, client_id, current_user.id)
+
+
+@app.put("/api/clients/{client_id}", response_model=ClientRead, tags=["clients"])
+def update_client(
+    client_id: int,
+    payload: ClientUpdate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Client:
+    client = _get_owned_client(db, client_id, current_user.id)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(client, field, value)
+    db.commit()
+    db.refresh(client)
+    return client
+
+
+@app.delete("/api/clients/{client_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["clients"])
+def delete_client(
+    client_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    client = _get_owned_client(db, client_id, current_user.id)
+    db.delete(client)
+    db.commit()
+
+
 @app.post("/api/invoices", response_model=InvoiceRead, status_code=status.HTTP_201_CREATED, tags=["invoices"])
 def create_invoice(
     payload: InvoiceCreate,
@@ -204,3 +288,9 @@ def create_invoice(
 def _money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
+
+def _get_owned_client(db: Session, client_id: int, user_id: int) -> Client:
+    client = db.get(Client, client_id)
+    if client is None or client.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+    return client
