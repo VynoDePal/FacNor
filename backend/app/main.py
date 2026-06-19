@@ -1,6 +1,18 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
-app = FastAPI(title="FacNor API", version="0.1.0")
+from backend.app.database import init_db
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    init_db()
+    yield
+
+
+app = FastAPI(title="FacNor API", version="0.1.0", lifespan=lifespan)
 
 
 @app.get("/health", tags=["health"])
