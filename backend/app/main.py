@@ -4,9 +4,9 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from backend.app.auth import create_access_token, get_current_user, hash_password, verify_password
@@ -207,6 +207,29 @@ def list_clients(
     db: Annotated[Session, Depends(get_db)],
 ) -> list[Client]:
     return list(db.scalars(select(Client).where(Client.user_id == current_user.id).order_by(Client.name, Client.id)))
+
+
+@app.get("/api/clients/search", response_model=list[ClientRead], tags=["clients"])
+def search_clients(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    q: Annotated[str, Query(min_length=1, max_length=255, pattern=r".*\S.*")],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> list[Client]:
+    query = q.strip()
+    siren_query = "".join(character for character in query if character.isdigit())
+    filters = [Client.name.ilike(f"%{query}%")]
+    if siren_query:
+        filters.append(Client.siren.like(f"{siren_query}%"))
+
+    return list(
+        db.scalars(
+            select(Client)
+            .where(Client.user_id == current_user.id, or_(*filters))
+            .order_by(Client.name, Client.id)
+            .limit(limit)
+        )
+    )
 
 
 @app.get("/api/clients/{client_id}", response_model=ClientRead, tags=["clients"])
