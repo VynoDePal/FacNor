@@ -607,7 +607,13 @@ textarea {
   line-height: 1.5;
 }
 
-.invoice-card > strong {
+.invoice-card-actions {
+  display: grid;
+  justify-items: end;
+  gap: 0.75rem;
+}
+
+.invoice-card-actions strong {
   color: #1d4ed8;
   white-space: nowrap;
 }
@@ -637,6 +643,10 @@ textarea {
 
   .invoice-card {
     flex-direction: column;
+  }
+
+  .invoice-card-actions {
+    justify-items: start;
   }
 }
 
