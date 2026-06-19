@@ -9,3 +9,4 @@
 - Client CRUD API is implemented in `backend/app/main.py` with protected `/api/clients` endpoints (`POST`, `GET` list/detail, `PUT`, `DELETE`), using `get_current_user` and `user_id` ownership isolation.
 - Invoice monetary calculations are centralized in `backend/app/invoice_calculation.py`; `calculate_invoice()` returns per-line totals and invoice totals rounded with `Decimal`/`ROUND_HALF_UP`.
 
+- Frontend React entrypoint is `frontend/src/main.tsx`; auth state uses localStorage keys `facnor.authToken` and `facnor.authUser`, and protected API calls send `Authorization: Bearer <token>`.
