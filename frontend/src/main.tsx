@@ -17,9 +17,9 @@ type LoginResponse = {
   user: AuthUser;
 };
 
-type ClientType = 'business' | 'individual';
+export type ClientType = 'business' | 'individual';
 
-type Client = {
+export type Client = {
   id: number;
   name: string;
   email: string | null;
@@ -29,7 +29,7 @@ type Client = {
   address: string;
 };
 
-type Invoice = {
+export type Invoice = {
   id: number;
   number: string;
   issue_date: string;
@@ -39,7 +39,7 @@ type Invoice = {
   total_including_tax: string;
 };
 
-type InvoiceLineFormState = {
+export type InvoiceLineFormState = {
   id: string;
   description: string;
   quantity: string;
@@ -94,7 +94,7 @@ function emptyInvoiceForm(): InvoiceFormState {
   };
 }
 
-function App() {
+export function App() {
   const [user, setUser] = useState<AuthUser | null>(() => readStoredUser());
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -712,7 +712,7 @@ function toInvoicePayload(form: InvoiceFormState) {
   };
 }
 
-function calculateInvoiceTotals(items: InvoiceLineFormState[]) {
+export function calculateInvoiceTotals(items: InvoiceLineFormState[]) {
   return items.reduce((totals, item) => {
     const totalExcludingTax = roundMoney(parseInvoiceNumber(item.quantity) * parseInvoiceNumber(item.unit_price_excluding_tax));
     const totalTax = roundMoney(totalExcludingTax * (parseInvoiceNumber(item.vat_rate) / 100));
@@ -764,7 +764,7 @@ function invoicePdfFilename(response: Response, invoice: Invoice) {
   return headerFilename ?? `invoice-${invoice.number}.pdf`;
 }
 
-function filterInvoices(invoices: Invoice[], clients: Client[], search: string) {
+export function filterInvoices(invoices: Invoice[], clients: Client[], search: string) {
   const normalizedSearch = normalizeSearch(search);
   if (!normalizedSearch) {
     return invoices;
@@ -814,8 +814,12 @@ function readStoredUser(): AuthUser | null {
   }
 }
 
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+const rootElement = document.getElementById('root');
+
+if (rootElement) {
+  ReactDOM.createRoot(rootElement).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+}
