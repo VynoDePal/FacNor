@@ -25,6 +25,15 @@ class User(Base):
     invoices: Mapped[list["Invoice"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
+class InvoiceSequence(Base):
+    __tablename__ = "invoice_sequences"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    next_number: Mapped[int] = mapped_column(nullable=False, default=1)
+
+    user: Mapped[User] = relationship()
+
+
 class Client(Base):
     __tablename__ = "clients"
 
