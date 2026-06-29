@@ -1,21 +1,19 @@
-# Repository Notes
+# Repository notes
 
-- Backend is a minimal FastAPI app exposed through `backend.main:app` and implemented in `backend/app/main.py`.
-- Database layer uses SQLAlchemy 2.0 declarative models in `backend/app/models.py` with shared `Base`, `engine`, `SessionLocal`, and `init_db()` in `backend/app/database.py`.
-- Current schema includes `users`, `clients`, `invoices`, `invoice_items`, and `invoice_sequences`; tests validate table creation, foreign keys, and ORM relationships in `backend/tests/test_database_schema.py`.
-- Invoice numbering lives in `backend/app/invoice_numbering.py`; use `generate_invoice_number(db, user_id)` inside the same transaction as invoice creation so rollbacks do not create sequence gaps.
-- Authentication is implemented in `backend/app/auth.py` using PBKDF2 password hashes and signed Bearer tokens; protected endpoints should depend on `get_current_user`.
-- Auth routes live in `backend/app/main.py`: `POST /api/auth/register`, `POST /api/auth/login`, and protected `GET /api/auth/me`.
-- Client CRUD API is implemented in `backend/app/main.py` with protected `/api/clients` endpoints (`POST`, `GET` list/detail, `PUT`, `DELETE`), using `get_current_user` and `user_id` ownership isolation.
-- Invoice CRUD API is implemented in `backend/app/main.py` with protected `/api/invoices` endpoints (`POST`, `GET` list/detail, `PUT`, `DELETE`), eager-loading lines and recalculating totals through shared helpers.
-- Invoice monetary calculations are centralized in `backend/app/invoice_calculation.py`; `calculate_invoice()` returns per-line totals and invoice totals rounded with `Decimal`/`ROUND_HALF_UP`.
+- FacNor backend is a FastAPI application exposed as both `app.main:app` and `main:app`.
+- SQLite schema is centralized in root `schema.sql`; production startup and pytest fixtures both call `app.db.initialize_database()`.
+- Required tables are `users`, `clients`, `invoices`, and `invoice_lines` with foreign keys enabled per connection.
+- Tests should run from the repository root with `python -m pytest`.
+- Authentication uses HS256 JWT bearer tokens generated in `app.main`; `FACNOR_JWT_SECRET` is mandatory and must be at least 32 characters.
 
-- Invoice PDF export lives in `backend/app/pdf_export.py` and is dependency-free: it builds a minimal paginated PDF with WinAnsi/Latin-1-safe text normalization and escaping.
+- Frontend authentication lives in `frontend/` as a Vite React TypeScript app; configure backend URL with `VITE_API_BASE_URL` and run `npm run dev` or `npm run build` there.
+- Backend CORS is configured in `app.main` with `FACNOR_CORS_ORIGINS`, defaulting to the Vite dev origin `http://localhost:5173`.
 
-- Backend tests may need `PYTHONPATH=/workspace pytest backend/tests` so imports like `backend.app...` resolve reliably in this environment.
+- Client management exposes authenticated CRUD endpoints under `/clients`; clients are scoped to the current JWT user.
+- Client records support `client_type` values `b2c` and `b2b`; B2B clients require valid French SIREN and VAT (`FR` key + SIREN) that match.
+- Invoice management exposes authenticated endpoints under `/invoices`; invoices are scoped to the current JWT user and include their lines on creation/detail responses.
+- Automatic invoice numbering uses `invoice_sequences` and generates `FAC-YYYY-NNNN` per user/year inside a `BEGIN IMMEDIATE` transaction.
 
-- Frontend React entrypoint is `frontend/src/main.tsx`; auth state uses localStorage keys `facnor.authToken` and `facnor.authUser`, and protected API calls send `Authorization: Bearer <token>`.
-- Frontend invoice list exports PDFs from `GET /api/invoices/{id}/pdf` using an authenticated fetch, Blob download, and the `Content-Disposition` filename when present.
-- Frontend tests use Vitest with jsdom and Testing Library; run them with `npm test` from `/workspace`.
-
+- Frontend client management is implemented in `frontend/src/main.tsx` via `ClientsManager`, using authenticated helper functions from `frontend/src/api.ts` for `/clients` CRUD.
+- Frontend invoice creation is implemented in `frontend/src/main.tsx` via `InvoicesManager`, using authenticated helpers from `frontend/src/api.ts` for `/invoices` list/create. It calculates HT/TVA/TTC dynamically client-side before submitting to the backend tax engine.
 
