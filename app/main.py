@@ -201,14 +201,20 @@ def fetch_invoice_with_client(
 ) -> tuple[sqlite3.Row, list[sqlite3.Row]] | None:
     row = connection.execute(
         """
-        SELECT invoices.id, invoices.user_id, invoices.client_id, invoices.invoice_number,
-               invoices.issue_date, invoices.due_date, invoices.status, invoices.currency,
-               invoices.total_excluding_tax, invoices.total_tax, invoices.total_including_tax,
-               invoices.created_at, users.full_name AS issuer_name, users.email AS issuer_email,
-               clients.name AS client_name, clients.email AS client_email, clients.address AS client_address
+        SELECT invoices.id, invoices.user_id, invoices.client_id,
+               invoices.invoice_number, invoices.issue_date,
+               invoices.due_date, invoices.status, invoices.currency,
+               invoices.total_excluding_tax, invoices.total_tax,
+               invoices.total_including_tax, invoices.created_at,
+               users.full_name AS issuer_name,
+               users.email AS issuer_email,
+               clients.name AS client_name,
+               clients.email AS client_email,
+               clients.address AS client_address
         FROM invoices
         INNER JOIN users ON users.id = invoices.user_id
-        INNER JOIN clients ON clients.id = invoices.client_id AND clients.user_id = invoices.user_id
+        INNER JOIN clients ON clients.id = invoices.client_id
+            AND clients.user_id = invoices.user_id
         WHERE invoices.id = ? AND invoices.user_id = ?
         """,
         (invoice_id, user_id),
@@ -225,19 +231,28 @@ def next_invoice_number(
 ) -> str:
     year = issue_date.year
     row = connection.execute(
-        "SELECT next_number FROM invoice_sequences WHERE user_id = ? AND sequence_year = ?",
+        (
+            "SELECT next_number FROM invoice_sequences "
+            "WHERE user_id = ? AND sequence_year = ?"
+        ),
         (user_id, year),
     ).fetchone()
     if row is None:
         next_number = 1
         connection.execute(
-            "INSERT INTO invoice_sequences (user_id, sequence_year, next_number) VALUES (?, ?, ?)",
+            (
+                "INSERT INTO invoice_sequences "
+                "(user_id, sequence_year, next_number) VALUES (?, ?, ?)"
+            ),
             (user_id, year, 2),
         )
     else:
         next_number = row["next_number"]
         connection.execute(
-            "UPDATE invoice_sequences SET next_number = ? WHERE user_id = ? AND sequence_year = ?",
+            (
+                "UPDATE invoice_sequences SET next_number = ? "
+                "WHERE user_id = ? AND sequence_year = ?"
+            ),
             (next_number + 1, user_id, year),
         )
     return f"FAC-{year}-{next_number:04d}"
@@ -423,7 +438,11 @@ def create_user(
     salt, password_hash = hash_password(payload.password)
     try:
         cursor = connection.execute(
-            "INSERT INTO users (email, full_name, password_salt, password_hash, auth_token) VALUES (?, ?, ?, ?, ?)",
+            (
+                "INSERT INTO users "
+                "(email, full_name, password_salt, password_hash, auth_token) "
+                "VALUES (?, ?, ?, ?, ?)"
+            ),
             (
                 payload.email,
                 payload.full_name,
@@ -455,7 +474,10 @@ def login(
     connection: sqlite3.Connection = Depends(get_connection),
 ) -> dict[str, object]:
     user = connection.execute(
-        "SELECT id, email, full_name, password_salt, password_hash FROM users WHERE email = ?",
+        (
+            "SELECT id, email, full_name, password_salt, password_hash "
+            "FROM users WHERE email = ?"
+        ),
         (payload.email,),
     ).fetchone()
     if user is None or not verify_password(
@@ -487,7 +509,9 @@ def create_client(
     try:
         cursor = connection.execute(
             """
-            INSERT INTO clients (user_id, client_type, name, email, address, siren, vat_number)
+            INSERT INTO clients (
+                user_id, client_type, name, email, address, siren, vat_number
+            )
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -505,7 +529,10 @@ def create_client(
         raise HTTPException(status_code=400, detail="Invalid client data") from exc
 
     row = connection.execute(
-        "SELECT id, user_id, client_type, name, email, address, siren, vat_number, created_at FROM clients WHERE id = ?",
+        (
+            "SELECT id, user_id, client_type, name, email, address, siren, "
+            "vat_number, created_at FROM clients WHERE id = ?"
+        ),
         (cursor.lastrowid,),
     ).fetchone()
     return serialize_client(row)
@@ -518,7 +545,8 @@ def list_clients(
 ) -> list[dict[str, object]]:
     rows = connection.execute(
         """
-        SELECT id, user_id, client_type, name, email, address, siren, vat_number, created_at
+        SELECT id, user_id, client_type, name, email, address, siren,
+               vat_number, created_at
         FROM clients
         WHERE user_id = ?
         ORDER BY id
@@ -536,7 +564,8 @@ def get_client(
 ) -> dict[str, object]:
     row = connection.execute(
         """
-        SELECT id, user_id, client_type, name, email, address, siren, vat_number, created_at
+        SELECT id, user_id, client_type, name, email, address, siren,
+               vat_number, created_at
         FROM clients
         WHERE id = ? AND user_id = ?
         """,
@@ -559,7 +588,8 @@ def update_client(
 ) -> dict[str, object]:
     existing = connection.execute(
         """
-        SELECT id, user_id, client_type, name, email, address, siren, vat_number, created_at
+        SELECT id, user_id, client_type, name, email, address, siren,
+               vat_number, created_at
         FROM clients
         WHERE id = ? AND user_id = ?
         """,
@@ -611,7 +641,8 @@ def update_client(
     connection.commit()
     row = connection.execute(
         """
-        SELECT id, user_id, client_type, name, email, address, siren, vat_number, created_at
+        SELECT id, user_id, client_type, name, email, address, siren,
+               vat_number, created_at
         FROM clients
         WHERE id = ? AND user_id = ?
         """,
@@ -740,8 +771,9 @@ def create_invoice(
 
     row = connection.execute(
         """
-        SELECT id, user_id, client_id, invoice_number, issue_date, due_date, status, currency,
-               total_excluding_tax, total_tax, total_including_tax, created_at
+        SELECT id, user_id, client_id, invoice_number, issue_date,
+               due_date, status, currency, total_excluding_tax,
+               total_tax, total_including_tax, created_at
         FROM invoices
         WHERE id = ? AND user_id = ?
         """,
@@ -786,7 +818,10 @@ def list_invoices(
     normalized_search = search.strip() if search is not None else ""
     if normalized_search:
         conditions.append(
-            "(LOWER(invoices.invoice_number) LIKE LOWER(?) OR LOWER(clients.name) LIKE LOWER(?))",
+            (
+                "(LOWER(invoices.invoice_number) LIKE LOWER(?) "
+                "OR LOWER(clients.name) LIKE LOWER(?))"
+            ),
         )
         search_pattern = f"%{normalized_search}%"
         parameters.extend([search_pattern, search_pattern])
@@ -805,12 +840,15 @@ def list_invoices(
 
     rows = connection.execute(
         f"""
-        SELECT invoices.id, invoices.user_id, invoices.client_id, invoices.invoice_number,
-               invoices.issue_date, invoices.due_date, invoices.status, invoices.currency,
-               invoices.total_excluding_tax, invoices.total_tax, invoices.total_including_tax,
-               invoices.created_at, clients.name AS client_name
+        SELECT invoices.id, invoices.user_id, invoices.client_id,
+               invoices.invoice_number, invoices.issue_date,
+               invoices.due_date, invoices.status, invoices.currency,
+               invoices.total_excluding_tax, invoices.total_tax,
+               invoices.total_including_tax, invoices.created_at,
+               clients.name AS client_name
         FROM invoices
-        INNER JOIN clients ON clients.id = invoices.client_id AND clients.user_id = invoices.user_id
+        INNER JOIN clients ON clients.id = invoices.client_id
+            AND clients.user_id = invoices.user_id
         WHERE {" AND ".join(conditions)}
         ORDER BY invoices.issue_date DESC, invoices.id DESC
         """,
@@ -827,8 +865,9 @@ def get_invoice(
 ) -> dict[str, object]:
     row = connection.execute(
         """
-        SELECT id, user_id, client_id, invoice_number, issue_date, due_date, status, currency,
-               total_excluding_tax, total_tax, total_including_tax, created_at
+        SELECT id, user_id, client_id, invoice_number, issue_date,
+               due_date, status, currency, total_excluding_tax,
+               total_tax, total_including_tax, created_at
         FROM invoices
         WHERE id = ? AND user_id = ?
         """,
