@@ -1,825 +1,457 @@
 import React, { FormEvent, useEffect, useMemo, useState } from 'react';
-import ReactDOM from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
+import { API_BASE_URL, AuthResponse, Client, ClientPayload, Invoice, InvoiceFilters, InvoiceLinePayload, InvoicePayload, createClient, createInvoice, deleteClient, getHealth, listClients, listInvoices, login, register, updateClient } from './api';
 import './styles.css';
 
-type AuthUser = {
-  id: number;
-  email: string;
-  company_name: string;
-  siren: string | null;
-  vat_number: string | null;
-  address: string;
-};
+const TOKEN_STORAGE_KEY = 'facnor_access_token';
+const emptyClientForm: ClientPayload = { client_type: 'b2c', name: '', email: '', address: '', siren: '', vat_number: '' };
+const emptyInvoiceLine: InvoiceLinePayload = { description: '', quantity: 1, unit_price: 0, tax_rate: 20 };
+const today = new Date().toISOString().slice(0, 10);
+type View = 'login' | 'register' | 'dashboard';
+type InvoiceFormState = { client_id: string; invoice_number: string; issue_date: string; due_date: string; lines: InvoiceLinePayload[] };
+type InvoiceFilterState = { search: string; status_filter: InvoiceFilters['status_filter']; client_id: string; issue_date_from: string; issue_date_to: string };
 
-type LoginResponse = {
-  access_token: string;
-  token_type: 'bearer';
-  user: AuthUser;
-};
+function getInitialView(): View {
+  return sessionStorage.getItem(TOKEN_STORAGE_KEY) ? 'dashboard' : 'login';
+}
 
-export type ClientType = 'business' | 'individual';
+function createEmptyInvoiceForm(clients: Client[] = []): InvoiceFormState {
+  return { client_id: clients[0]?.id.toString() ?? '', invoice_number: '', issue_date: today, due_date: '', lines: [{ ...emptyInvoiceLine }] };
+}
 
-export type Client = {
-  id: number;
-  name: string;
-  email: string | null;
-  client_type: ClientType;
-  siren: string | null;
-  vat_number: string | null;
-  address: string;
-};
+function roundAmount(value: number): number {
+  return Math.round((value + Number.EPSILON) * 1000) / 1000;
+}
 
-export type Invoice = {
-  id: number;
-  number: string;
-  issue_date: string;
-  due_date: string | null;
-  status: string;
-  client_id: number;
-  total_including_tax: string;
-};
+function formatAmount(value: number): string {
+  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
+}
 
-export type InvoiceLineFormState = {
-  id: string;
-  description: string;
-  quantity: string;
-  unit_price_excluding_tax: string;
-  vat_rate: string;
-};
-
-type InvoiceFormState = {
-  client_id: string;
-  issue_date: string;
-  due_date: string;
-  items: InvoiceLineFormState[];
-};
-
-type ClientFormState = {
-  name: string;
-  email: string;
-  client_type: ClientType;
-  siren: string;
-  vat_number: string;
-  address: string;
-};
-
-const AUTH_TOKEN_KEY = 'facnor.authToken';
-const AUTH_USER_KEY = 'facnor.authUser';
-
-const EMPTY_CLIENT_FORM: ClientFormState = {
-  name: '',
-  email: '',
-  client_type: 'business',
-  siren: '',
-  vat_number: '',
-  address: '',
-};
-
-function newInvoiceLine(): InvoiceLineFormState {
+function calculateInvoiceTotals(lines: InvoiceLinePayload[]) {
+  const calculatedLines = lines.map((line) => {
+    const lineTotalExcludingTax = roundAmount((Number.isFinite(line.quantity) ? line.quantity : 0) * (Number.isFinite(line.unit_price) ? line.unit_price : 0));
+    const lineTotalTax = roundAmount(lineTotalExcludingTax * ((Number.isFinite(line.tax_rate) ? line.tax_rate : 0) / 100));
+    return { ...line, lineTotalExcludingTax, lineTotalTax, lineTotalIncludingTax: roundAmount(lineTotalExcludingTax + lineTotalTax) };
+  });
   return {
-    id: crypto.randomUUID(),
-    description: '',
-    quantity: '1',
-    unit_price_excluding_tax: '',
-    vat_rate: '20',
+    lines: calculatedLines,
+    totalExcludingTax: roundAmount(calculatedLines.reduce((sum, line) => sum + line.lineTotalExcludingTax, 0)),
+    totalTax: roundAmount(calculatedLines.reduce((sum, line) => sum + line.lineTotalTax, 0)),
+    totalIncludingTax: roundAmount(calculatedLines.reduce((sum, line) => sum + line.lineTotalIncludingTax, 0)),
   };
 }
 
-function emptyInvoiceForm(): InvoiceFormState {
-  return {
-    client_id: '',
-    issue_date: new Date().toISOString().slice(0, 10),
-    due_date: '',
-    items: [newInvoiceLine()],
-  };
-}
 
-export function App() {
-  const [user, setUser] = useState<AuthUser | null>(() => readStoredUser());
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+function App() {
+  const [view, setView] = useState<View>(getInitialView);
+  const [token, setToken] = useState<string | null>(() => sessionStorage.getItem(TOKEN_STORAGE_KEY));
+  const [userEmail, setUserEmail] = useState<string | null>(() => sessionStorage.getItem('facnor_user_email'));
 
   useEffect(() => {
-    if (user) {
-      window.history.replaceState(null, '', '/dashboard');
+    window.history.replaceState(null, '', view === 'dashboard' ? '/dashboard' : '/');
+  }, [view]);
+
+  function handleAuthenticated(response: AuthResponse) {
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, response.access_token);
+    if (response.email) {
+      sessionStorage.setItem('facnor_user_email', response.email);
+      setUserEmail(response.email);
     }
-  }, [user]);
-
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError('');
-    setIsSubmitting(true);
-
-    try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (!response.ok) {
-        throw new Error(response.status === 401 ? 'Identifiants invalides.' : 'Connexion impossible pour le moment.');
-      }
-
-      const data = (await response.json()) as LoginResponse;
-      localStorage.setItem(AUTH_TOKEN_KEY, data.access_token);
-      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
-      setUser(data.user);
-    } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : 'Une erreur inattendue est survenue.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    setToken(response.access_token);
+    setView('dashboard');
   }
 
-  function handleLogout() {
-    localStorage.removeItem(AUTH_TOKEN_KEY);
-    localStorage.removeItem(AUTH_USER_KEY);
-    setUser(null);
-    setPassword('');
-    window.history.replaceState(null, '', '/');
+  function logout() {
+    sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+    sessionStorage.removeItem('facnor_user_email');
+    setToken(null);
+    setUserEmail(null);
+    setView('login');
   }
 
-  if (user) {
-    return <Dashboard user={user} onLogout={handleLogout} />;
+  if (view === 'dashboard' && token) {
+    return <Dashboard apiUrl={API_BASE_URL} email={userEmail} token={token} onLogout={logout} />;
   }
 
   return (
-    <main className="app-shell auth-page">
-      <section className="hero auth-intro" aria-labelledby="page-title">
+    <main className="auth-shell">
+      <section className="hero-card">
         <p className="eyebrow">FacNor</p>
-        <h1 id="page-title">Connexion à votre facturation</h1>
-        <p className="lead">
-          Accédez à votre espace sécurisé pour gérer vos clients, préparer vos factures
-          normalisées et suivre votre activité.
-        </p>
+        <h1>Gérez vos factures normalisées en toute confiance.</h1>
+        <p>Connectez-vous à votre espace pour retrouver vos clients, préparer vos factures et suivre votre activité.</p>
       </section>
-
-      <section className="auth-card" aria-labelledby="login-title">
-        <div>
-          <p className="eyebrow">Authentification</p>
-          <h2 id="login-title">Se connecter</h2>
-          <p className="form-help">Utilisez l'adresse e-mail et le mot de passe de votre compte FacNor.</p>
+      <section className="auth-card">
+        <div className="tabs" role="tablist" aria-label="Choix du formulaire">
+          <button className={view === 'login' ? 'active' : ''} onClick={() => setView('login')} type="button">Connexion</button>
+          <button className={view === 'register' ? 'active' : ''} onClick={() => setView('register')} type="button">Créer un compte</button>
         </div>
-
-        <form className="login-form" onSubmit={handleLogin}>
-          <label>
-            Adresse e-mail
-            <input
-              autoComplete="email"
-              name="email"
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="vous@entreprise.fr"
-              required
-              type="email"
-              value={email}
-            />
-          </label>
-
-          <label>
-            Mot de passe
-            <input
-              autoComplete="current-password"
-              minLength={8}
-              name="password"
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="••••••••"
-              required
-              type="password"
-              value={password}
-            />
-          </label>
-
-          {error ? <p className="form-error" role="alert">{error}</p> : null}
-
-          <button className="primary-button" disabled={isSubmitting} type="submit">
-            {isSubmitting ? 'Connexion…' : 'Se connecter'}
-          </button>
-        </form>
+        {view === 'register' ? <RegisterForm onAuthenticated={handleAuthenticated} /> : <LoginForm onAuthenticated={handleAuthenticated} />}
       </section>
     </main>
   );
 }
 
-function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [form, setForm] = useState<ClientFormState>(EMPTY_CLIENT_FORM);
-  const [invoiceForm, setInvoiceForm] = useState<InvoiceFormState>(() => emptyInvoiceForm());
-  const [editingClientId, setEditingClientId] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isSavingInvoice, setIsSavingInvoice] = useState(false);
-  const [exportingInvoiceId, setExportingInvoiceId] = useState<number | null>(null);
-  const [message, setMessage] = useState('');
-  const [invoiceMessage, setInvoiceMessage] = useState('');
-  const [invoiceSearch, setInvoiceSearch] = useState('');
-  const [error, setError] = useState('');
-  const [invoiceError, setInvoiceError] = useState('');
+function LoginForm({ onAuthenticated }: { onAuthenticated: (response: AuthResponse) => void }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setSubmitting] = useState(false);
 
-  const editingClient = useMemo(
-    () => clients.find((client) => client.id === editingClientId) ?? null,
-    [clients, editingClientId],
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      onAuthenticated(await login({ email, password }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Connexion impossible.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="auth-form">
+      <h2>Connexion</h2>
+      <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+      <label>Mot de passe<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+      {error && <p className="error" role="alert">{error}</p>}
+      <button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Connexion...' : 'Se connecter'}</button>
+    </form>
   );
-  const invoiceTotals = useMemo(() => calculateInvoiceTotals(invoiceForm.items), [invoiceForm.items]);
-  const filteredInvoices = useMemo(
-    () => filterInvoices(invoices, clients, invoiceSearch),
-    [clients, invoices, invoiceSearch],
+}
+
+function RegisterForm({ onAuthenticated }: { onAuthenticated: (response: AuthResponse) => void }) {
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setSubmitting] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      onAuthenticated(await register({ full_name: fullName, email, password }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Création de compte impossible.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="auth-form">
+      <h2>Créer un compte</h2>
+      <label>Nom complet<input value={fullName} onChange={(event) => setFullName(event.target.value)} required /></label>
+      <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+      <label>Mot de passe<input type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+      {error && <p className="error" role="alert">{error}</p>}
+      <button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Création...' : 'Créer mon compte'}</button>
+    </form>
   );
+}
+
+function Dashboard({ apiUrl, email, token, onLogout }: { apiUrl: string; email: string | null; token: string; onLogout: () => void }) {
+  const [apiStatus, setApiStatus] = useState('vérification...');
+  const [clients, setClients] = useState<Client[]>([]);
 
   useEffect(() => {
-    void loadDashboardData();
+    getHealth().then((health) => setApiStatus(health.status)).catch(() => setApiStatus('indisponible'));
   }, []);
 
-  async function requestApi(path: string, options: RequestInit = {}) {
-    const token = localStorage.getItem(AUTH_TOKEN_KEY);
-    const response = await fetch(path, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        ...options.headers,
-      },
-    });
+  return (
+    <main className="dashboard">
+      <nav><strong>FacNor</strong><button type="button" onClick={onLogout}>Déconnexion</button></nav>
+      <section className="dashboard-header">
+        <p className="eyebrow">Tableau de bord</p>
+        <h1>Bienvenue{email ? `, ${email}` : ''}</h1>
+        <p>Créez, modifiez et supprimez vos clients avant de préparer leurs factures normalisées.</p>
+        <div className="info-card"><span>API configurée</span><code>{apiUrl}</code><span>Statut backend : {apiStatus}</span></div>
+      </section>
+      <ClientsManager token={token} onClientsChange={setClients} />
+      <InvoicesManager token={token} clients={clients} />
+    </main>
+  );
+}
 
-    if (response.status === 401) {
-      onLogout();
-      throw new Error('Votre session a expiré. Veuillez vous reconnecter.');
-    }
+function ClientsManager({ token, onClientsChange }: { token: string; onClientsChange?: (clients: Client[]) => void }) {
+  const [clients, setClients] = useState<Client[]>([]);
+  const [form, setForm] = useState<ClientPayload>(emptyClientForm);
+  const [editingClientId, setEditingClientId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [isLoading, setLoading] = useState(true);
+  const [isSubmitting, setSubmitting] = useState(false);
+  const selectedClient = clients.find((client) => client.id === editingClientId) ?? null;
 
-    return response;
-  }
+  useEffect(() => {
+    refreshClients();
+  }, [token]);
 
-  async function requestClients(path = '', options: RequestInit = {}) {
-    return requestApi(`/api/clients${path}`, options);
-  }
+  useEffect(() => {
+    onClientsChange?.(clients);
+  }, [clients, onClientsChange]);
 
-  async function requestInvoices(path = '', options: RequestInit = {}) {
-    return requestApi(`/api/invoices${path}`, options);
-  }
-
-  async function loadDashboardData() {
-    setIsLoading(true);
-    setError('');
-    setInvoiceError('');
-
+  async function refreshClients() {
+    setError(null);
+    setLoading(true);
     try {
-      const [clientsResponse, invoicesResponse] = await Promise.all([requestClients(), requestInvoices()]);
-      if (!clientsResponse.ok) throw new Error('Impossible de charger les clients.');
-      if (!invoicesResponse.ok) throw new Error('Impossible de charger les factures.');
-      setClients((await clientsResponse.json()) as Client[]);
-      setInvoices((await invoicesResponse.json()) as Invoice[]);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Une erreur inattendue est survenue.');
+      setClients(await listClients(token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Chargement des clients impossible.');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   }
 
-  async function loadInvoices() {
-    setInvoiceError('');
-    try {
-      const response = await requestInvoices();
-      if (!response.ok) throw new Error('Impossible de charger les factures.');
-      setInvoices((await response.json()) as Invoice[]);
-    } catch (loadError) {
-      setInvoiceError(loadError instanceof Error ? loadError.message : 'Une erreur inattendue est survenue.');
-    }
-  }
-
-  async function loadClients() {
-    setIsLoading(true);
-    setError('');
-
-    try {
-      const response = await requestClients();
-      if (!response.ok) {
-        throw new Error('Impossible de charger les clients.');
-      }
-      setClients((await response.json()) as Client[]);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Une erreur inattendue est survenue.');
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError('');
-    setMessage('');
-    setIsSaving(true);
-
-    try {
-      const payload = toClientPayload(form);
-      const response = await requestClients(editingClientId ? `/${editingClientId}` : '', {
-        method: editingClientId ? 'PUT' : 'POST',
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error(await apiErrorMessage(response, 'Impossible d’enregistrer ce client.'));
-      }
-
-      const savedClient = (await response.json()) as Client;
-      setClients((currentClients) => {
-        if (editingClientId) {
-          return currentClients.map((client) => (client.id === savedClient.id ? savedClient : client));
-        }
-        return [...currentClients, savedClient].sort((first, second) => first.name.localeCompare(second.name));
-      });
-      setMessage(editingClientId ? 'Client modifié avec succès.' : 'Client créé avec succès.');
-      resetForm();
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Une erreur inattendue est survenue.');
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  async function handleInvoiceSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setInvoiceError('');
-    setInvoiceMessage('');
-    setIsSavingInvoice(true);
-
-    try {
-      const response = await requestInvoices('', {
-        method: 'POST',
-        body: JSON.stringify(toInvoicePayload(invoiceForm)),
-      });
-      if (!response.ok) throw new Error(await apiErrorMessage(response, 'Impossible de créer cette facture.'));
-      const savedInvoice = (await response.json()) as Invoice;
-      setInvoices((currentInvoices) => [savedInvoice, ...currentInvoices]);
-      setInvoiceForm(emptyInvoiceForm());
-      setInvoiceMessage(`Facture ${savedInvoice.number} créée avec succès.`);
-    } catch (saveError) {
-      setInvoiceError(saveError instanceof Error ? saveError.message : 'Une erreur inattendue est survenue.');
-    } finally {
-      setIsSavingInvoice(false);
-    }
-  }
-
-  async function handleInvoicePdfExport(invoice: Invoice) {
-    setInvoiceError('');
-    setInvoiceMessage('');
-    setExportingInvoiceId(invoice.id);
-
-    try {
-      const response = await requestInvoices(`/${invoice.id}/pdf`, { headers: {} });
-      if (!response.ok) throw new Error(await apiErrorMessage(response, 'Impossible d’exporter cette facture.'));
-      const pdfBlob = await response.blob();
-      downloadBlob(pdfBlob, invoicePdfFilename(response, invoice));
-      setInvoiceMessage(`Export PDF de la facture ${invoice.number} téléchargé.`);
-    } catch (exportError) {
-      setInvoiceError(exportError instanceof Error ? exportError.message : 'Une erreur inattendue est survenue.');
-    } finally {
-      setExportingInvoiceId(null);
-    }
-  }
-
-  function updateInvoiceLine(lineId: string, field: keyof Omit<InvoiceLineFormState, 'id'>, value: string) {
-    setInvoiceForm((currentForm) => ({
-      ...currentForm,
-      items: currentForm.items.map((item) => (item.id === lineId ? { ...item, [field]: value } : item)),
-    }));
-  }
-
-  function addInvoiceLine() {
-    setInvoiceForm((currentForm) => ({ ...currentForm, items: [...currentForm.items, newInvoiceLine()] }));
-  }
-
-  function removeInvoiceLine(lineId: string) {
-    setInvoiceForm((currentForm) => ({
-      ...currentForm,
-      items: currentForm.items.length === 1 ? currentForm.items : currentForm.items.filter((item) => item.id !== lineId),
-    }));
+  function updateField<K extends keyof ClientPayload>(field: K, value: ClientPayload[K]) {
+    setForm((current) => ({ ...current, [field]: value }));
   }
 
   function startEditing(client: Client) {
     setEditingClientId(client.id);
-    setForm({
-      name: client.name,
-      email: client.email ?? '',
-      client_type: client.client_type,
-      siren: client.siren ?? '',
-      vat_number: client.vat_number ?? '',
-      address: client.address,
-    });
-    setError('');
-    setMessage('');
+    setSuccess(null);
+    setError(null);
+    setForm({ client_type: client.client_type, name: client.name, email: client.email ?? '', address: client.address, siren: client.siren ?? '', vat_number: client.vat_number ?? '' });
   }
 
   function resetForm() {
     setEditingClientId(null);
-    setForm(EMPTY_CLIENT_FORM);
+    setForm(emptyClientForm);
+  }
+
+  function normalizePayload(payload: ClientPayload): ClientPayload {
+    return {
+      client_type: payload.client_type,
+      name: payload.name.trim(),
+      email: payload.email?.trim() || null,
+      address: payload.address.trim(),
+      siren: payload.client_type === 'b2b' ? payload.siren?.trim() || null : null,
+      vat_number: payload.client_type === 'b2b' ? payload.vat_number?.trim() || null : null,
+    };
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setSuccess(null);
+    setSubmitting(true);
+    try {
+      const savedClient = editingClientId ? await updateClient(token, editingClientId, normalizePayload(form)) : await createClient(token, normalizePayload(form));
+      setClients((current) => editingClientId ? current.map((client) => client.id === savedClient.id ? savedClient : client) : [...current, savedClient]);
+      setSuccess(editingClientId ? 'Client modifié.' : 'Client créé.');
+      resetForm();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Enregistrement du client impossible.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function removeClient(client: Client) {
+    if (!window.confirm(`Supprimer le client ${client.name} ?`)) return;
+    setError(null);
+    setSuccess(null);
+    try {
+      await deleteClient(token, client.id);
+      setClients((current) => current.filter((item) => item.id !== client.id));
+      if (editingClientId === client.id) resetForm();
+      setSuccess('Client supprimé.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Suppression du client impossible.');
+    }
   }
 
   return (
-    <main className="dashboard-shell">
-      <header className="dashboard-header">
-        <div>
-          <p className="eyebrow">Tableau de bord</p>
-          <h1>Bienvenue, {user.company_name}</h1>
-          <p className="lead">Créez vos factures, suivez les totaux en direct et gérez vos fiches clients.</p>
+    <section className="clients-panel" aria-labelledby="clients-title">
+      <div className="section-heading">
+        <div><p className="eyebrow">Gestion des clients</p><h2 id="clients-title">Clients</h2></div>
+        <button type="button" className="secondary-button" onClick={refreshClients} disabled={isLoading}>Actualiser</button>
+      </div>
+      <form className="client-form" onSubmit={submit}>
+        <h3>{selectedClient ? `Modifier ${selectedClient.name}` : 'Créer un client'}</h3>
+        <div className="form-grid">
+          <label>Type<select value={form.client_type} onChange={(event) => updateField('client_type', event.target.value as ClientPayload['client_type'])}><option value="b2c">Particulier (B2C)</option><option value="b2b">Entreprise (B2B)</option></select></label>
+          <label>Nom<input value={form.name} onChange={(event) => updateField('name', event.target.value)} required /></label>
+          <label>Email<input type="email" value={form.email ?? ''} onChange={(event) => updateField('email', event.target.value)} /></label>
+          <label>Adresse<input value={form.address} onChange={(event) => updateField('address', event.target.value)} required /></label>
+          {form.client_type === 'b2b' && <><label>SIREN<input value={form.siren ?? ''} onChange={(event) => updateField('siren', event.target.value)} required /></label><label>TVA intracommunautaire<input value={form.vat_number ?? ''} onChange={(event) => updateField('vat_number', event.target.value)} required /></label></>}
         </div>
-        <button className="secondary-button" onClick={onLogout} type="button">
-          Se déconnecter
-        </button>
-      </header>
-
-      <section className="dashboard-grid" aria-label="Résumé du compte">
-        <article className="summary-card">
-          <span className="summary-label">Compte</span>
-          <strong>{user.email}</strong>
-        </article>
-        <article className="summary-card">
-          <span className="summary-label">Factures</span>
-          <strong>{invoices.length}</strong>
-        </article>
-        <article className="summary-card">
-          <span className="summary-label">Clients</span>
-          <strong>{clients.length}</strong>
-        </article>
-      </section>
-
-
-      <section className="invoice-layout" aria-labelledby="invoice-title">
-        <div className="invoice-form-card">
-          <p className="eyebrow">Création de facture</p>
-          <h2 id="invoice-title">Nouvelle facture</h2>
-          <p className="form-help">Ajoutez des lignes dynamiquement et visualisez les totaux HT, TVA et TTC en direct.</p>
-          <form className="invoice-form" onSubmit={handleInvoiceSubmit}>
-            <div className="form-row">
-              <label>Client facturé<select required value={invoiceForm.client_id} onChange={(event) => setInvoiceForm({ ...invoiceForm, client_id: event.target.value })}><option value="">Sélectionner un client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
-              <label>Date d’émission<input type="date" value={invoiceForm.issue_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, issue_date: event.target.value })} /></label>
-              <label>Date d’échéance<input type="date" value={invoiceForm.due_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, due_date: event.target.value })} /></label>
-            </div>
-            <div className="invoice-lines">
-              {invoiceForm.items.map((item, index) => {
-                const lineTotal = calculateInvoiceTotals([item]).total_including_tax;
-                return <fieldset className="invoice-line" key={item.id}><legend>Ligne {index + 1}</legend><label className="line-description">Description<input required placeholder="Ex. Prestation de conseil" value={item.description} onChange={(event) => updateInvoiceLine(item.id, 'description', event.target.value)} /></label><label>Qté<input min="0.01" required step="0.01" type="number" value={item.quantity} onChange={(event) => updateInvoiceLine(item.id, 'quantity', event.target.value)} /></label><label>Prix HT<input min="0" required step="0.01" type="number" value={item.unit_price_excluding_tax} onChange={(event) => updateInvoiceLine(item.id, 'unit_price_excluding_tax', event.target.value)} /></label><label>TVA %<input min="0" required step="0.01" type="number" value={item.vat_rate} onChange={(event) => updateInvoiceLine(item.id, 'vat_rate', event.target.value)} /></label><div className="line-total"><span>Total TTC</span><strong>{formatCurrency(lineTotal)}</strong></div><button className="secondary-button remove-line-button" disabled={invoiceForm.items.length === 1} onClick={() => removeInvoiceLine(item.id)} type="button">Retirer</button></fieldset>;
-              })}
-            </div>
-            <button className="secondary-button add-line-button" onClick={addInvoiceLine} type="button">Ajouter une ligne</button>
-            <div className="invoice-totals" aria-live="polite"><div><span>Total HT</span><strong>{formatCurrency(invoiceTotals.total_excluding_tax)}</strong></div><div><span>TVA</span><strong>{formatCurrency(invoiceTotals.total_tax)}</strong></div><div className="grand-total"><span>Total TTC</span><strong>{formatCurrency(invoiceTotals.total_including_tax)}</strong></div></div>
-            {invoiceError ? <p className="form-error" role="alert">{invoiceError}</p> : null}
-            {invoiceMessage ? <p className="form-success" role="status">{invoiceMessage}</p> : null}
-            <div className="form-actions"><button className="primary-button" disabled={isSavingInvoice || clients.length === 0} type="submit">{isSavingInvoice ? 'Création…' : 'Créer la facture'}</button>{clients.length === 0 ? <span className="inline-help">Créez d’abord un client.</span> : null}</div>
-          </form>
-        </div>
-        <div className="invoices-list-card">
-          <div className="list-header">
-            <div>
-              <p className="eyebrow">Historique</p>
-              <h2>Liste des factures</h2>
-            </div>
-            <button className="secondary-button" onClick={loadInvoices} type="button">
-              Actualiser
-            </button>
-          </div>
-
-          <label className="invoice-search">
-            Rechercher par client ou SIREN
-            <input
-              onChange={(event) => setInvoiceSearch(event.target.value)}
-              placeholder="Ex. Dupont ou 123456789"
-              type="search"
-              value={invoiceSearch}
-            />
-          </label>
-
-          {isLoading ? <p className="empty-state">Chargement des factures…</p> : null}
-          {!isLoading && invoices.length === 0 ? <p className="empty-state">Aucune facture pour le moment.</p> : null}
-          {!isLoading && invoices.length > 0 && filteredInvoices.length === 0 ? (
-            <p className="empty-state">Aucune facture ne correspond à cette recherche.</p>
-          ) : null}
-          {!isLoading && filteredInvoices.length > 0 ? (
-            <div className="invoices-list" aria-live="polite">
-              {filteredInvoices.map((invoice) => {
-                const client = clientForInvoice(invoice.client_id, clients);
-                return (
-                  <article className="invoice-card" key={invoice.id}>
-                    <div>
-                      <div className="invoice-card-meta">
-                        <span className="client-type">{invoice.status}</span>
-                        <span>{formatDate(invoice.issue_date)}</span>
-                      </div>
-                      <h3>{invoice.number}</h3>
-                      <p>{client?.name ?? 'Client supprimé'}</p>
-                      <dl className="invoice-client-details">
-                        <div>
-                          <dt>SIREN</dt>
-                          <dd>{client?.siren ?? 'Non renseigné'}</dd>
-                        </div>
-                        <div>
-                          <dt>Échéance</dt>
-                          <dd>{invoice.due_date ? formatDate(invoice.due_date) : 'Non renseignée'}</dd>
-                        </div>
-                      </dl>
-                    </div>
-                    <div className="invoice-card-actions">
-                      <strong>{formatCurrency(Number(invoice.total_including_tax))}</strong>
-                      <button
-                        className="secondary-button"
-                        disabled={exportingInvoiceId === invoice.id}
-                        onClick={() => void handleInvoicePdfExport(invoice)}
-                        type="button"
-                      >
-                        {exportingInvoiceId === invoice.id ? 'Export…' : 'Exporter PDF'}
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
-      </section>
-      <section className="clients-layout" aria-labelledby="clients-title">
-        <div className="client-form-card">
-          <p className="eyebrow">Gestion des clients</p>
-          <h2 id="clients-title">{editingClient ? `Modifier ${editingClient.name}` : 'Nouveau client'}</h2>
-          <p className="form-help">Les champs nom, type et adresse sont obligatoires. Le SIREN doit contenir 9 chiffres.</p>
-
-          <form className="client-form" onSubmit={handleSubmit}>
-            <label>
-              Nom ou raison sociale
-              <input
-                name="name"
-                onChange={(event) => setForm({ ...form, name: event.target.value })}
-                placeholder="Ex. Dupont SAS"
-                required
-                value={form.name}
-              />
-            </label>
-
-            <label>
-              Type de client
-              <select
-                name="client_type"
-                onChange={(event) => setForm({ ...form, client_type: event.target.value as ClientType })}
-                value={form.client_type}
-              >
-                <option value="business">Professionnel (B2B)</option>
-                <option value="individual">Particulier (B2C)</option>
-              </select>
-            </label>
-
-            <label>
-              Adresse e-mail
-              <input
-                name="email"
-                onChange={(event) => setForm({ ...form, email: event.target.value })}
-                placeholder="client@example.fr"
-                type="email"
-                value={form.email}
-              />
-            </label>
-
-            <div className="form-row">
-              <label>
-                SIREN
-                <input
-                  inputMode="numeric"
-                  maxLength={9}
-                  minLength={9}
-                  name="siren"
-                  onChange={(event) => setForm({ ...form, siren: event.target.value.replace(/\D/g, '') })}
-                  pattern="\d{9}"
-                  placeholder="123456789"
-                  value={form.siren}
-                />
-              </label>
-
-              <label>
-                TVA intracommunautaire
-                <input
-                  name="vat_number"
-                  onChange={(event) => setForm({ ...form, vat_number: event.target.value })}
-                  placeholder="FR00123456789"
-                  value={form.vat_number}
-                />
-              </label>
-            </div>
-
-            <label>
-              Adresse de facturation
-              <textarea
-                name="address"
-                onChange={(event) => setForm({ ...form, address: event.target.value })}
-                placeholder="12 rue de la Paix, 75002 Paris"
-                required
-                rows={4}
-                value={form.address}
-              />
-            </label>
-
-            {error ? <p className="form-error" role="alert">{error}</p> : null}
-            {message ? <p className="form-success" role="status">{message}</p> : null}
-
-            <div className="form-actions">
-              <button className="primary-button" disabled={isSaving} type="submit">
-                {isSaving ? 'Enregistrement…' : editingClient ? 'Enregistrer les modifications' : 'Créer le client'}
-              </button>
-              {editingClient ? (
-                <button className="secondary-button" onClick={resetForm} type="button">
-                  Annuler
-                </button>
-              ) : null}
-            </div>
-          </form>
-        </div>
-
-        <div className="clients-list-card">
-          <div className="list-header">
-            <div>
-              <p className="eyebrow">Répertoire</p>
-              <h2>Clients enregistrés</h2>
-            </div>
-            <button className="secondary-button" disabled={isLoading} onClick={loadClients} type="button">
-              Actualiser
-            </button>
-          </div>
-
-          {isLoading ? <p className="empty-state">Chargement des clients…</p> : null}
-          {!isLoading && clients.length === 0 ? <p className="empty-state">Aucun client pour le moment.</p> : null}
-          {!isLoading && clients.length > 0 ? (
-            <div className="clients-list">
-              {clients.map((client) => (
-                <article className="client-card" key={client.id}>
-                  <div>
-                    <span className="client-type">{client.client_type === 'business' ? 'B2B' : 'B2C'}</span>
-                    <h3>{client.name}</h3>
-                    <p>{client.address}</p>
-                  </div>
-                  <dl>
-                    <div>
-                      <dt>Email</dt>
-                      <dd>{client.email ?? 'Non renseigné'}</dd>
-                    </div>
-                    <div>
-                      <dt>SIREN</dt>
-                      <dd>{client.siren ?? 'Non renseigné'}</dd>
-                    </div>
-                    <div>
-                      <dt>TVA</dt>
-                      <dd>{client.vat_number ?? 'Non renseignée'}</dd>
-                    </div>
-                  </dl>
-                  <button className="secondary-button" onClick={() => startEditing(client)} type="button">
-                    Modifier
-                  </button>
-                </article>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </section>
-    </main>
+        {error && <p className="error" role="alert">{error}</p>}
+        {success && <p className="success" role="status">{success}</p>}
+        <div className="form-actions"><button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Enregistrement...' : selectedClient ? 'Modifier le client' : 'Créer le client'}</button>{selectedClient && <button type="button" className="secondary-button" onClick={resetForm}>Annuler</button>}</div>
+      </form>
+      <div className="clients-list">
+        {isLoading ? <p>Chargement des clients...</p> : clients.length === 0 ? <p>Aucun client pour le moment. Créez votre premier client.</p> : clients.map((client) => (
+          <article className="client-card" key={client.id}>
+            <div><span className="badge">{client.client_type === 'b2b' ? 'Entreprise' : 'Particulier'}</span><h3>{client.name}</h3><p>{client.address}</p>{client.email && <p>{client.email}</p>}{client.client_type === 'b2b' && <p>SIREN {client.siren} · TVA {client.vat_number}</p>}</div>
+            <div className="client-actions"><button type="button" className="secondary-button" onClick={() => startEditing(client)}>Modifier</button><button type="button" className="danger-button" onClick={() => removeClient(client)}>Supprimer</button></div>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
-function toClientPayload(form: ClientFormState) {
-  return {
-    name: form.name.trim(),
-    email: optionalString(form.email),
-    client_type: form.client_type,
-    siren: optionalString(form.siren),
-    vat_number: optionalString(form.vat_number),
-    address: form.address.trim(),
-  };
-}
+function InvoicesManager({ token, clients }: { token: string; clients: Client[] }) {
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [filters, setFilters] = useState<InvoiceFilterState>({ search: '', status_filter: '', client_id: '', issue_date_from: '', issue_date_to: '' });
+  const [form, setForm] = useState<InvoiceFormState>(() => createEmptyInvoiceForm(clients));
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [isLoading, setLoading] = useState(true);
+  const [isSubmitting, setSubmitting] = useState(false);
+  const totals = useMemo(() => calculateInvoiceTotals(form.lines), [form.lines]);
 
-function optionalString(value: string) {
-  const trimmedValue = value.trim();
-  return trimmedValue.length > 0 ? trimmedValue : null;
-}
+  useEffect(() => {
+    refreshInvoices(filters);
+  }, [token]);
 
-function toInvoicePayload(form: InvoiceFormState) {
-  return {
-    client_id: Number(form.client_id),
-    issue_date: optionalString(form.issue_date),
-    due_date: optionalString(form.due_date),
-    items: form.items.map((item) => ({
-      description: item.description.trim(),
-      quantity: decimalString(item.quantity),
-      unit_price_excluding_tax: decimalString(item.unit_price_excluding_tax),
-      vat_rate: decimalString(item.vat_rate),
-    })),
-  };
-}
+  useEffect(() => {
+    setForm((current) => current.client_id || clients.length === 0 ? current : { ...current, client_id: clients[0].id.toString() });
+  }, [clients]);
 
-export function calculateInvoiceTotals(items: InvoiceLineFormState[]) {
-  return items.reduce((totals, item) => {
-    const totalExcludingTax = roundMoney(parseInvoiceNumber(item.quantity) * parseInvoiceNumber(item.unit_price_excluding_tax));
-    const totalTax = roundMoney(totalExcludingTax * (parseInvoiceNumber(item.vat_rate) / 100));
+  function buildFilters(filterState: InvoiceFilterState = filters): InvoiceFilters {
     return {
-      total_excluding_tax: roundMoney(totals.total_excluding_tax + totalExcludingTax),
-      total_tax: roundMoney(totals.total_tax + totalTax),
-      total_including_tax: roundMoney(totals.total_including_tax + totalExcludingTax + totalTax),
+      search: filterState.search.trim(),
+      status_filter: filterState.status_filter,
+      client_id: filterState.client_id ? Number(filterState.client_id) : '',
+      issue_date_from: filterState.issue_date_from,
+      issue_date_to: filterState.issue_date_to,
     };
-  }, { total_excluding_tax: 0, total_tax: 0, total_including_tax: 0 });
-}
-
-function parseInvoiceNumber(value: string) {
-  const parsedValue = Number(value.replace(',', '.'));
-  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 0;
-}
-
-function roundMoney(value: number) {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-function decimalString(value: string) {
-  return (Number(value.replace(',', '.')) || 0).toFixed(2);
-}
-
-async function apiErrorMessage(response: Response, fallback: string) {
-  if (response.status === 422) return 'Certains champs sont invalides. Vérifiez les formats et les montants saisis.';
-  try {
-    const data = (await response.json()) as { detail?: string };
-    return data.detail ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
-function invoicePdfFilename(response: Response, invoice: Invoice) {
-  const contentDisposition = response.headers.get('content-disposition');
-  const headerFilename = contentDisposition?.match(/filename="?([^";]+)"?/i)?.[1];
-  return headerFilename ?? `invoice-${invoice.number}.pdf`;
-}
-
-export function filterInvoices(invoices: Invoice[], clients: Client[], search: string) {
-  const normalizedSearch = normalizeSearch(search);
-  if (!normalizedSearch) {
-    return invoices;
   }
 
-  return invoices.filter((invoice) => {
-    const client = clientForInvoice(invoice.client_id, clients);
-    const searchableText = normalizeSearch(`${client?.name ?? ''} ${client?.siren ?? ''}`);
-    return searchableText.includes(normalizedSearch);
-  });
-}
-
-function clientForInvoice(clientId: number, clients: Client[]) {
-  return clients.find((client) => client.id === clientId) ?? null;
-}
-
-function normalizeSearch(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-}
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value);
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('fr-FR').format(new Date(value));
-}
-
-function readStoredUser(): AuthUser | null {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
-  const storedUser = localStorage.getItem(AUTH_USER_KEY);
-
-  if (!token || !storedUser) {
-    return null;
+  async function refreshInvoices(filterState: InvoiceFilterState = filters) {
+    setError(null);
+    setLoading(true);
+    try {
+      setInvoices(await listInvoices(token, buildFilters(filterState)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Chargement des factures impossible.');
+    } finally {
+      setLoading(false);
+    }
   }
 
-  try {
-    return JSON.parse(storedUser) as AuthUser;
-  } catch {
-    localStorage.removeItem(AUTH_TOKEN_KEY);
-    localStorage.removeItem(AUTH_USER_KEY);
-    return null;
+  function updateFilter<K extends keyof InvoiceFilterState>(field: K, value: InvoiceFilterState[K]) {
+    setFilters((current) => ({ ...current, [field]: value }));
   }
-}
 
-const rootElement = document.getElementById('root');
+  function applyFilters(event: FormEvent) {
+    event.preventDefault();
+    refreshInvoices(filters);
+  }
 
-if (rootElement) {
-  ReactDOM.createRoot(rootElement).render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>,
+  function resetFilters() {
+    const emptyFilters: InvoiceFilterState = { search: '', status_filter: '', client_id: '', issue_date_from: '', issue_date_to: '' };
+    setFilters(emptyFilters);
+    refreshInvoices(emptyFilters);
+  }
+
+  function updateField<K extends keyof Omit<InvoiceFormState, 'lines'>>(field: K, value: InvoiceFormState[K]) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateLine(index: number, field: keyof InvoiceLinePayload, value: string) {
+    setForm((current) => ({
+      ...current,
+      lines: current.lines.map((line, lineIndex) => lineIndex === index ? { ...line, [field]: field === 'description' ? value : Number(value) } : line),
+    }));
+  }
+
+  function addLine() {
+    setForm((current) => ({ ...current, lines: [...current.lines, { ...emptyInvoiceLine }] }));
+  }
+
+  function removeLine(index: number) {
+    setForm((current) => ({ ...current, lines: current.lines.length > 1 ? current.lines.filter((_, lineIndex) => lineIndex !== index) : current.lines }));
+  }
+
+  function buildPayload(): InvoicePayload {
+    return {
+      client_id: Number(form.client_id),
+      invoice_number: form.invoice_number.trim() || null,
+      issue_date: form.issue_date,
+      due_date: form.due_date || null,
+      lines: form.lines.map((line) => ({ description: line.description.trim(), quantity: line.quantity, unit_price: line.unit_price, tax_rate: line.tax_rate })),
+    };
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setSuccess(null);
+    setSubmitting(true);
+    try {
+      const invoice = await createInvoice(token, buildPayload());
+      setInvoices((current) => [invoice, ...current]);
+      setSuccess(`Facture ${invoice.invoice_number} créée.`);
+      setForm(createEmptyInvoiceForm(clients));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Création de la facture impossible.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="invoices-panel" aria-labelledby="invoices-title">
+      <div className="section-heading"><div><p className="eyebrow">Création de factures</p><h2 id="invoices-title">Factures</h2></div><button type="button" className="secondary-button" onClick={() => refreshInvoices()} disabled={isLoading}>Actualiser</button></div>
+      <form className="invoice-filters" onSubmit={applyFilters}>
+        <h3>Recherche et filtrage</h3>
+        <div className="form-grid">
+          <label>Client ou numéro<input value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} placeholder="Nom client ou FAC-2025-0001" /></label>
+          <label>Statut<select value={filters.status_filter} onChange={(event) => updateFilter('status_filter', event.target.value as InvoiceFilterState['status_filter'])}><option value="">Tous</option><option value="draft">Brouillon</option><option value="issued">Émise</option><option value="paid">Payée</option><option value="cancelled">Annulée</option></select></label>
+          <label>Client<select value={filters.client_id} onChange={(event) => updateFilter('client_id', event.target.value)}><option value="">Tous les clients</option>{clients.map((client) => <option value={client.id} key={client.id}>{client.name}</option>)}</select></label>
+          <label>Émise après<input type="date" value={filters.issue_date_from} onChange={(event) => updateFilter('issue_date_from', event.target.value)} /></label>
+          <label>Émise avant<input type="date" value={filters.issue_date_to} onChange={(event) => updateFilter('issue_date_to', event.target.value)} /></label>
+        </div>
+        <div className="form-actions"><button type="submit" disabled={isLoading}>Rechercher</button><button type="button" className="secondary-button" onClick={resetFilters} disabled={isLoading}>Réinitialiser</button></div>
+      </form>
+      {clients.length === 0 ? <p className="info-card">Créez d’abord un client pour pouvoir émettre une facture.</p> : (
+        <form className="invoice-form" onSubmit={submit}>
+          <h3>Créer une facture</h3>
+          <div className="form-grid">
+            <label>Client<select value={form.client_id} onChange={(event) => updateField('client_id', event.target.value)} required>{clients.map((client) => <option value={client.id} key={client.id}>{client.name}</option>)}</select></label>
+            <label>Numéro manuel (optionnel)<input value={form.invoice_number} onChange={(event) => updateField('invoice_number', event.target.value)} placeholder="Généré automatiquement si vide" /></label>
+            <label>Date d’émission<input type="date" value={form.issue_date} onChange={(event) => updateField('issue_date', event.target.value)} required /></label>
+            <label>Date d’échéance<input type="date" value={form.due_date} onChange={(event) => updateField('due_date', event.target.value)} /></label>
+          </div>
+          <div className="invoice-lines">
+            <div className="line-header"><h4>Lignes de facture</h4><button type="button" className="secondary-button" onClick={addLine}>Ajouter une ligne</button></div>
+            {form.lines.map((line, index) => {
+              const calculatedLine = totals.lines[index];
+              return (
+                <div className="invoice-line" key={index}>
+                  <label>Description<input value={line.description} onChange={(event) => updateLine(index, 'description', event.target.value)} required /></label>
+                  <label>Quantité<input type="number" min="0.001" step="0.001" value={line.quantity} onChange={(event) => updateLine(index, 'quantity', event.target.value)} required /></label>
+                  <label>Prix HT<input type="number" min="0" step="0.01" value={line.unit_price} onChange={(event) => updateLine(index, 'unit_price', event.target.value)} required /></label>
+                  <label>TVA %<input type="number" min="0" step="0.1" value={line.tax_rate} onChange={(event) => updateLine(index, 'tax_rate', event.target.value)} required /></label>
+                  <div className="line-total"><span>HT {formatAmount(calculatedLine.lineTotalExcludingTax)}</span><span>TVA {formatAmount(calculatedLine.lineTotalTax)}</span><span>TTC {formatAmount(calculatedLine.lineTotalIncludingTax)}</span></div>
+                  {form.lines.length > 1 && <button type="button" className="danger-button" onClick={() => removeLine(index)}>Retirer</button>}
+                </div>
+              );
+            })}
+          </div>
+          <div className="totals-card" aria-live="polite"><span>Total HT <strong>{formatAmount(totals.totalExcludingTax)}</strong></span><span>Total TVA <strong>{formatAmount(totals.totalTax)}</strong></span><span>Total TTC <strong>{formatAmount(totals.totalIncludingTax)}</strong></span></div>
+          {error && <p className="error" role="alert">{error}</p>}
+          {success && <p className="success" role="status">{success}</p>}
+          <div className="form-actions"><button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Création...' : 'Créer la facture'}</button></div>
+        </form>
+      )}
+      <div className="invoices-list">
+        {isLoading ? <p>Chargement des factures...</p> : invoices.length === 0 ? <p>Aucune facture créée pour le moment.</p> : invoices.map((invoice) => (
+          <article className="invoice-card" key={invoice.id}>
+            <div><span className="badge">{invoice.status}</span><h3>{invoice.invoice_number}</h3><p>{invoice.client_name ? `${invoice.client_name} · ` : ''}Émise le {invoice.issue_date}{invoice.due_date ? ` · échéance ${invoice.due_date}` : ''}</p></div>
+            <div className="invoice-amounts"><span>HT {formatAmount(invoice.total_excluding_tax)}</span><span>TVA {formatAmount(invoice.total_tax)}</span><strong>TTC {formatAmount(invoice.total_including_tax)}</strong></div>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
+
+
+createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);
